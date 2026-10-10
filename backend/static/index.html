@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>ORBITRA7 // TACTICAL POST-FLOOD GEOSPATIAL COMMAND</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet"/>
+  
+  <!-- Leaflet & WebGL Map Styling -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "radar-cyan": "#00f0ff",
+            "telemetry-green": "#10b981",
+            "hazard-amber": "#f59e0b",
+            "critical-red": "#ef4444",
+            "dark-base": "#06090e",
+            "dark-surface": "#0f141a",
+            "dark-panel": "rgba(15, 20, 26, 0.88)"
+          },
+          fontFamily: {
+            mono: ["JetBrains Mono", "monospace"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Geist", "sans-serif"]
+          }
+        }
+      }
+    };
+  </script>
+  
+  <style>
+    /* Dark tactical basemap styling */
+    .dark-tiles .leaflet-tile {
+      filter: brightness(0.65) invert(1) contrast(3) hue-rotate(200deg) saturate(0.35);
+    }
+    .hud-bracket {
+      position: relative;
+    }
+    .hud-bracket::before {
+      content: '';
+      position: absolute;
+      top: -1px;
+      left: -1px;
+      width: 8px;
+      height: 8px;
+      border-top: 2px solid #00f0ff;
+      border-left: 2px solid #00f0ff;
+      pointer-events: none;
+    }
+    .hud-bracket::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      right: -1px;
+      width: 8px;
+      height: 8px;
+      border-bottom: 2px solid #00f0ff;
+      border-right: 2px solid #00f0ff;
+      pointer-events: none;
+    }
+    /* Pulsing animations */
+    @keyframes radar-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(0, 240, 255, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0); }
+    }
+    .pulse-cyan {
+      animation: radar-pulse 2s infinite;
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #06090e; }
+    ::-webkit-scrollbar-thumb { background: #334155; }
+  </style>
+</head>
+<body class="bg-dark-base text-slate-100 font-body h-screen w-screen overflow-hidden flex flex-col antialiased select-none">
+
+  <!-- TOP HUD MISSION BAR -->
+  <header class="h-14 bg-dark-surface/95 border-b border-slate-800 px-4 flex items-center justify-between z-30 flex-shrink-0 backdrop-blur-md">
+    <div class="flex items-center space-x-3">
+      <div class="w-3 h-3 bg-radar-cyan rounded-none pulse-cyan"></div>
+      <div class="font-display font-bold text-sm tracking-wider text-white">
+        ORBITRA<span class="text-radar-cyan">7</span>
+      </div>
+      <span class="text-xs font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 border border-slate-700">
+        MISSION: POST-FLOOD TACTICAL ROUTING
+      </span>
+      <span class="hidden md:inline-flex items-center text-xs font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 border border-emerald-800">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-ping"></span>
+        SENTINEL-1 SAR ACTIVE
+      </span>
+    </div>
+
+    <!-- Center Telemetry Readouts -->
+    <div class="hidden lg:flex items-center space-x-6 text-xs font-mono text-slate-400">
+      <div>GRID RES: <span class="text-radar-cyan font-bold">10m C-BAND</span></div>
+      <div>POLARIZATION: <span class="text-slate-200">VV + VH</span></div>
+      <div>PROCESSING CRS: <span class="text-slate-200">UTM 43N (METRIC)</span></div>
+      <div>SYSTEM: <span class="text-emerald-400 font-bold">NOMINAL 100%</span></div>
+    </div>
+
+    <!-- Right Controls -->
+    <div class="flex items-center space-x-2">
+      <button id="btn-reset-view" class="px-2.5 py-1 text-xs font-mono bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+        CENTER MAP
+      </button>
+      <a href="/docs" target="_blank" class="px-2.5 py-1 text-xs font-mono bg-cyan-950/60 hover:bg-cyan-900 text-radar-cyan border border-cyan-800 transition">
+        API DOCS
+      </a>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <div class="relative flex-1 w-full h-full overflow-hidden">
+    
+    <!-- FULL-BLEED MAP CONTAINER -->
+    <div id="map" class="absolute inset-0 w-full h-full z-0 dark-tiles bg-slate-950"></div>
+
+    <!-- FLOATING LEFT MISSION CONTROL PANEL -->
+    <aside class="absolute top-4 left-4 z-20 w-96 max-h-[calc(100%-2rem)] flex flex-col bg-dark-panel backdrop-blur-xl border border-slate-800 shadow-2xl p-4 overflow-y-auto hud-bracket space-y-4">
+      
+      <!-- Section A: Scenario Selector -->
+      <div>
+        <div class="text-[10px] font-mono tracking-widest text-radar-cyan uppercase mb-1 flex items-center justify-between">
+          <span>// DISASTER SCENARIO</span>
+          <span class="text-amber-400">SEVERITY 4</span>
+        </div>
+        <select id="scenario-select" class="w-full bg-slate-900 border border-slate-700 text-xs text-white p-2 font-mono focus:border-radar-cyan focus:outline-none">
+          <option value="kerala_2018">Kochi / Periyar Basin Flood (August 2018)</option>
+          <option value="mekong_2019">Mekong Delta Inundation Peak (2019)</option>
+        </select>
+      </div>
+
+      <!-- Section B: Route Planner -->
+      <div class="border-t border-slate-800 pt-3">
+        <div class="text-[10px] font-mono tracking-widest text-radar-cyan uppercase mb-2">
+          // LOGISTICAL ROUTE PLANNER
+        </div>
+
+        <div class="space-y-2">
+          <div>
+            <label class="text-[11px] font-mono text-slate-400 block mb-0.5">ORIGIN (RELIEF DEPOT):</label>
+            <select id="origin-select" class="w-full bg-slate-900 border border-slate-700 text-xs text-slate-200 p-1.5 font-mono focus:border-radar-cyan focus:outline-none">
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+
+          <div>
+            <label class="text-[11px] font-mono text-slate-400 block mb-0.5">DESTINATION (HOSPITAL / CLINIC):</label>
+            <select id="dest-select" class="w-full bg-slate-900 border border-slate-700 text-xs text-slate-200 p-1.5 font-mono focus:border-radar-cyan focus:outline-none">
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+
+          <button id="btn-compute-route" class="w-full mt-2 py-2 px-3 bg-radar-cyan hover:bg-cyan-300 text-dark-base font-mono font-bold text-xs uppercase tracking-wider transition flex items-center justify-center space-x-2 shadow-lg shadow-cyan-500/20">
+            <span class="w-2 h-2 rounded-full bg-dark-base animate-pulse"></span>
+            <span>COMPUTE RISK-AWARE DETOUR</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Section C: Route Telemetry & Hazard Avoidance -->
+      <div id="telemetry-card" class="border-t border-slate-800 pt-3">
+        <div class="text-[10px] font-mono tracking-widest text-slate-400 uppercase mb-2 flex items-center justify-between">
+          <span>// TELEMETRY COMPARISON</span>
+          <span id="route-status-badge" class="px-1.5 py-0.5 text-[9px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-800">
+            SAFE ROUTE FOUND
+          </span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 text-xs font-mono mb-3">
+          <div class="bg-slate-900/90 p-2 border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase">SAFE DISTANCE</div>
+            <div id="safe-dist-val" class="text-base font-bold text-emerald-400">-- km</div>
+          </div>
+          <div class="bg-slate-900/90 p-2 border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase">BASELINE DIST</div>
+            <div id="baseline-dist-val" class="text-base font-bold text-slate-300">-- km</div>
+          </div>
+          <div class="bg-slate-900/90 p-2 border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase">DETOUR OVERHEAD</div>
+            <div id="detour-val" class="text-base font-bold text-hazard-amber">+0.0 km</div>
+          </div>
+          <div class="bg-slate-900/90 p-2 border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase">AVOIDED FLOODED</div>
+            <div id="avoided-val" class="text-base font-bold text-radar-cyan">-- m</div>
+          </div>
+        </div>
+
+        <div id="route-advice" class="text-[11px] font-mono bg-cyan-950/30 border border-cyan-800/60 p-2 text-cyan-200 leading-relaxed">
+          Select origin and destination, then click "COMPUTE RISK-AWARE DETOUR".
+        </div>
+      </div>
+
+      <!-- Section D: Road Accessibility Legend -->
+      <div class="border-t border-slate-800 pt-3">
+        <div class="text-[10px] font-mono tracking-widest text-slate-400 uppercase mb-2">
+          // ACCESSIBILITY CLASSIFICATION LEGEND
+        </div>
+        <div class="space-y-1.5 text-xs font-mono">
+          <div class="flex items-center space-x-2">
+            <span class="w-3 h-3 rounded-none bg-[#64748b]"></span>
+            <span class="text-slate-300">Clear (R &lt; 0.05) &mdash; 1&times; Penalty</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="w-3 h-3 rounded-none bg-[#f59e0b]"></span>
+            <span class="text-amber-400">Partially Flooded (0.05&ndash;0.30) &mdash; 10&times;</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="w-3 h-3 rounded-none bg-[#ef4444]"></span>
+            <span class="text-red-400">Submerged (R &gt; 0.30) &mdash; 10,000&times; Impassable</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="w-3 h-3 rounded-none bg-[#00f0ff] opacity-60"></span>
+            <span class="text-radar-cyan">Sentinel-1 Inundation Mask</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="w-4 h-1 bg-emerald-400"></span>
+            <span class="text-emerald-400 font-bold">Flood-Safe Detour</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="w-4 h-1 border-t-2 border-dashed border-red-500"></span>
+            <span class="text-red-400">Direct Baseline (Submerged)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section E: Scientific Disclaimer -->
+      <div class="border-t border-slate-800 pt-2 text-[9px] font-mono text-slate-400 leading-normal bg-slate-900/60 p-2 border border-slate-800">
+        <span class="text-amber-400 font-bold block mb-0.5">&#x26A0; SATELLITE RADAR EXPOSURE PROXY NOTICE:</span>
+        SAR backscatter reflects 2D surface water specular deflection. Passability reflects modeled geospatial exposure, not field-measured water depth or structural bridge integrity.
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- LEAFLET MAP LOGIC & REST API INTEGRATION -->
+  <script>
+    let map = null;
+    let floodLayerGroup = null;
+    let roadLayerGroup = null;
+    let facilitiesLayerGroup = null;
+    let routeLayerGroup = null;
+    let currentScenario = "kerala_2018";
+    let facilitiesData = [];
+
+    // Initialize Map
+    function initMap() {
+      map = L.map('map', {
+        zoomControl: false,
+        attributionControl: false
+      }).setView([9.975, 76.285], 13);
+
+      // Add Carto Dark Matter Basemap
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        subdomains: 'abcd'
+      }).addTo(map);
+
+      L.control.zoom({ position: 'topright' }).addTo(map);
+
+      floodLayerGroup = L.layerGroup().addTo(map);
+      roadLayerGroup = L.layerGroup().addTo(map);
+      facilitiesLayerGroup = L.layerGroup().addTo(map);
+      routeLayerGroup = L.layerGroup().addTo(map);
+
+      loadScenarioData(currentScenario);
+    }
+
+    // Fetch and render layers from FastAPI backend
+    async function loadScenarioData(scenarioId) {
+      try {
+        // Clear previous layers
+        floodLayerGroup.clearLayers();
+        roadLayerGroup.clearLayers();
+        facilitiesLayerGroup.clearLayers();
+        routeLayerGroup.clearLayers();
+
+        // 1. Fetch Flood Extent
+        const floodRes = await fetch(`/api/layers/flood?scenario_id=${scenarioId}`);
+        const floodData = await floodRes.json();
+        
+        L.geoJSON(floodData, {
+          style: {
+            color: '#00f0ff',
+            weight: 1.5,
+            fillColor: '#00f0ff',
+            fillOpacity: 0.38
+          }
+        }).addTo(floodLayerGroup);
+
+        // 2. Fetch Road Network
+        const roadsRes = await fetch(`/api/layers/roads?scenario_id=${scenarioId}`);
+        const roadsData = await roadsRes.json();
+        
+        L.geoJSON(roadsData, {
+          style: function(feature) {
+            const status = feature.properties.status;
+            let color = '#64748b';
+            let weight = 3;
+            if (status === 'Partially Flooded') {
+              color = '#f59e0b';
+              weight = 3.5;
+            } else if (status === 'Submerged') {
+              color = '#ef4444';
+              weight = 4;
+            }
+            return { color: color, weight: weight, opacity: 0.85 };
+          },
+          onEachFeature: function(feature, layer) {
+            const p = feature.properties;
+            layer.bindPopup(`
+              <div style="font-family: monospace; font-size: 11px;">
+                <b>${p.name || 'Road Segment'}</b><br/>
+                Status: <span style="font-weight: bold; color: ${p.status === 'Submerged' ? '#ef4444' : (p.status === 'Partially Flooded' ? '#f59e0b' : '#10b981')}">${p.status}</span><br/>
+                Exposure: ${(p.exposure_ratio * 100).toFixed(1)}%<br/>
+                Length: ${p.length_meters}m
+              </div>
+            `);
+          }
+        }).addTo(roadLayerGroup);
+
+        // 3. Fetch Facilities
+        const facRes = await fetch(`/api/facilities?scenario_id=${scenarioId}`);
+        const facData = await facRes.json();
+        facilitiesData = facData.features || [];
+
+        populateFacilityDropdowns(facilitiesData);
+
+        facilitiesData.forEach(f => {
+          const coords = [f.geometry.coordinates[1], f.geometry.coordinates[0]];
+          const isHospital = f.properties.type === 'hospital';
+          const iconColor = isHospital ? '#ef4444' : '#00f0ff';
+          const symbol = isHospital ? '+' : 'R';
+
+          const marker = L.circleMarker(coords, {
+            radius: 7,
+            fillColor: iconColor,
+            color: '#ffffff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.9
+          }).addTo(facilitiesLayerGroup);
+
+          marker.bindPopup(`
+            <div style="font-family: monospace; font-size: 11px;">
+              <b>${f.properties.name}</b><br/>
+              Type: ${f.properties.type}<br/>
+              Status: ${f.properties.status}
+            </div>
+          `);
+        });
+
+        // Auto-run first route calculation
+        setTimeout(calculateCurrentRoute, 400);
+
+      } catch (err) {
+        console.error("Failed to load scenario data:", err);
+      }
+    }
+
+    function populateFacilityDropdowns(facilities) {
+      const originSel = document.getElementById('origin-select');
+      const destSel = document.getElementById('dest-select');
+      originSel.innerHTML = '';
+      destSel.innerHTML = '';
+
+      facilities.forEach((f, idx) => {
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify(f.geometry.coordinates);
+        opt.text = `${f.properties.name} [${f.properties.type}]`;
+        
+        if (f.properties.type === 'relief_centre') {
+          originSel.appendChild(opt.cloneNode(true));
+        } else {
+          destSel.appendChild(opt.cloneNode(true));
+        }
+      });
+
+      if (originSel.options.length === 0 && facilities.length > 0) {
+        originSel.appendChild(new Option(facilities[0].properties.name, JSON.stringify(facilities[0].geometry.coordinates)));
+      }
+      if (destSel.options.length === 0 && facilities.length > 1) {
+        destSel.appendChild(new Option(facilities[1].properties.name, JSON.stringify(facilities[1].geometry.coordinates)));
+      }
+    }
+
+    async function calculateCurrentRoute() {
+      const originSel = document.getElementById('origin-select');
+      const destSel = document.getElementById('dest-select');
+      if (!originSel.value || !destSel.value) return;
+
+      const origin = JSON.parse(originSel.value);
+      const destination = JSON.parse(destSel.value);
+
+      routeLayerGroup.clearLayers();
+
+      const btn = document.getElementById('btn-compute-route');
+      btn.innerText = "CALCULATING RISK WEIGHTS...";
+
+      try {
+        const res = await fetch('/api/route', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            origin: origin,
+            destination: destination,
+            scenario_id: currentScenario
+          })
+        });
+
+        const data = await res.json();
+        btn.innerText = "COMPUTE RISK-AWARE DETOUR";
+
+        if (data.status === "DESTINATION_ISOLATED") {
+          document.getElementById('route-status-badge').className = "px-1.5 py-0.5 text-[9px] font-mono bg-red-950 text-red-400 border border-red-800";
+          document.getElementById('route-status-badge').innerText = "DESTINATION ISOLATED";
+          document.getElementById('safe-dist-val').innerText = "N/A";
+          document.getElementById('baseline-dist-val').innerText = (data.baseline_route ? data.baseline_route.distance_km : "0") + " km";
+          document.getElementById('detour-val').innerText = "N/A";
+          document.getElementById('avoided-val').innerText = "0 m";
+          document.getElementById('route-advice').innerText = data.analytics.recommendation;
+          return;
+        }
+
+        // Draw Baseline Route (Red Dashed Line)
+        if (data.baseline_route && data.baseline_route.geojson) {
+          L.geoJSON(data.baseline_route.geojson, {
+            style: {
+              color: '#ef4444',
+              weight: 3.5,
+              dashArray: '5, 8',
+              opacity: 0.8
+            }
+          }).addTo(routeLayerGroup);
+        }
+
+        // Draw Safe Detour Route (Bold Green Solid Line)
+        if (data.safe_route && data.safe_route.geojson) {
+          const safeLine = L.geoJSON(data.safe_route.geojson, {
+            style: {
+              color: '#10b981',
+              weight: 5,
+              opacity: 0.95
+            }
+          }).addTo(routeLayerGroup);
+          map.fitBounds(safeLine.getBounds(), { padding: [60, 60] });
+        }
+
+        // Update telemetry numbers
+        document.getElementById('route-status-badge').className = "px-1.5 py-0.5 text-[9px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-800";
+        document.getElementById('route-status-badge').innerText = "SAFE DETOUR ACTIVE";
+        document.getElementById('safe-dist-val').innerText = data.safe_route.distance_km + " km";
+        document.getElementById('baseline-dist-val').innerText = (data.baseline_route ? data.baseline_route.distance_km : data.safe_route.distance_km) + " km";
+        document.getElementById('detour-val').innerText = "+" + data.analytics.detour_overhead_km + " km";
+        document.getElementById('avoided-val').innerText = data.analytics.submerged_distance_avoided_m + " m";
+        document.getElementById('route-advice').innerText = data.analytics.recommendation;
+
+      } catch (err) {
+        btn.innerText = "COMPUTE RISK-AWARE DETOUR";
+        console.error("Route calculation error:", err);
+      }
+    }
+
+    // Event Listeners
+    document.getElementById('scenario-select').addEventListener('change', function(e) {
+      currentScenario = e.target.value;
+      loadScenarioData(currentScenario);
+    });
+
+    document.getElementById('btn-compute-route').addEventListener('click', calculateCurrentRoute);
+
+    document.getElementById('btn-reset-view').addEventListener('click', function() {
+      map.setView([9.975, 76.285], 13);
+    });
+
+    window.addEventListener('DOMContentLoaded', initMap);
+  </script>
+</body>
+</html>
