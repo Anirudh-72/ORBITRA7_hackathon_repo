@@ -69,7 +69,7 @@ const Globe = React.memo(({ theme }: { theme: 'light' | 'dark' }) => {
     }
   });
 
-  const { geometry, pts } = useMemo(() => {
+  const { geometry, pts, cityGeo } = useMemo(() => {
     const geo = new THREE.IcosahedronGeometry(1.2, 45);
     const pos = geo.attributes.position;
     const v = new THREE.Vector3();
