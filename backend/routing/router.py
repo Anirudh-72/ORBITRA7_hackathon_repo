@@ -14,6 +14,7 @@ import math
 import networkx as nx
 
 from backend.spatial.classifier import generate_contract_road_network
+from backend.live_data import hazard_db
 
 
 def build_routing_graph(roads_geojson: Dict[str, Any]) -> Tuple[nx.Graph, Dict[str, List[float]]]:
@@ -146,6 +147,20 @@ def plan_post_flood_routes(
         roads_geojson = generate_contract_road_network(scenario_id)
         
     G, node_coords = build_routing_graph(roads_geojson)
+    
+    # --- APPLY LIVE HAZARD PENALTIES ---
+    active_hazards = hazard_db.get_active_hazards()
+    for hazard in active_hazards:
+        hx, hy = hazard["coordinates"]
+        try:
+            h_node = find_nearest_node([hx, hy], node_coords)
+            for neighbor in G.neighbors(h_node):
+                edge_data = G[h_node][neighbor]
+                multiplier = 10 if hazard["type"] == "pothole" else 100
+                edge_data["penalty_weight"] = edge_data.get("penalty_weight", edge_data.get("length_meters", 100.0)) * multiplier
+        except ValueError:
+            pass
+    # -----------------------------------
     
     origin_node = find_nearest_node(origin, node_coords)
     dest_node = find_nearest_node(destination, node_coords)

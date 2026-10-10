@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 maplibregl.setWorkerUrl(maplibreglWorkerUrl);
 import { 
   MapPin, Building2, Route, AlertTriangle, 
-  CheckCircle, Loader2, Navigation, Layers, Info
+  CheckCircle, Loader2, Navigation, Layers, Info, Map as MapIcon, Globe
 } from 'lucide-react';
 import bbox from '@turf/bbox';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
@@ -27,10 +27,13 @@ interface CommandCenterProps {
   isCalculating: boolean;
   isLoadingData: boolean;
   dataError: string | null;
+  liveWeather: any;
+  hazards: any[];
   onOriginChange: (facility: any) => void;
   onDestinationChange: (facility: any) => void;
   onCalculateRoute: () => void;
   onClearRoute: () => void;
+  onReportHazard: (lat: number, lon: number, type: string, description: string) => void;
 }
 
 export default function CommandCenter({
@@ -44,13 +47,17 @@ export default function CommandCenter({
   isCalculating,
   isLoadingData,
   dataError,
+  liveWeather,
+  hazards,
   onOriginChange,
   onDestinationChange,
   onCalculateRoute,
   onClearRoute,
+  onReportHazard,
 }: CommandCenterProps) {
   const mapRef = useRef<MapRef>(null);
   const [hoverInfo, setHoverInfo] = useState<{ x: number, y: number, feature: any } | null>(null);
+  const [isReportingMode, setIsReportingMode] = useState(false);
 
   useEffect(() => {
     if (roads && roads.features && roads.features.length > 0 && mapRef.current) {
@@ -116,7 +123,7 @@ export default function CommandCenter({
     facilities: true
   });
 
-  const markers = useMemo(() => {
+  const facilityMarkers = useMemo(() => {
     if (!facilities?.features || !visibleLayers.facilities) return null;
     
     return facilities.features.map((facility: any, index: number) => {
@@ -130,10 +137,10 @@ export default function CommandCenter({
       
       if (isOrigin) {
         markerColor = '#06b6d4'; // cyan
-        glowClass = 'shadow-[0_0_15px_rgba(6,182,212,0.8)] rounded-full bg-surface/50';
+        glowClass = 'shadow-[0_0_15px_rgba(6,182,212,0.8)] rounded-full bg-surface-container/50';
       } else if (isDestination) {
         markerColor = '#10b981'; // green
-        glowClass = 'shadow-[0_0_15px_rgba(16,185,129,0.8)] rounded-full bg-surface/50';
+        glowClass = 'shadow-[0_0_15px_rgba(16,185,129,0.8)] rounded-full bg-surface-container/50';
       }
 
       return (
@@ -287,7 +294,17 @@ export default function CommandCenter({
         interactiveLayerIds={['roads-layer']}
         onMouseMove={onMapHover}
         onMouseLeave={() => setHoverInfo(null)}
-        style={{ width: '100%', height: '100%' }}
+        onClick={(e) => {
+          if (isReportingMode) {
+            const { lng, lat } = e.lngLat;
+            const desc = window.prompt("Enter hazard description:");
+            if (desc !== null) {
+              onReportHazard(lat, lng, 'pothole', desc);
+            }
+            setIsReportingMode(false);
+          }
+        }}
+        style={{ width: '100%', height: '100%', cursor: isReportingMode ? 'crosshair' : 'default' }}
       >
         <NavigationControl position="bottom-right" />
 
@@ -403,8 +420,31 @@ export default function CommandCenter({
         )}
 
         {/* 3. MARKERS */}
-        {markers}
+        {facilityMarkers}
+
+        {/* Hazard Markers */}
+        {hazards && hazards.map((h: any, i: number) => (
+          <Marker key={`hazard-${i}`} longitude={h.coordinates[0]} latitude={h.coordinates[1]} anchor="bottom">
+            <div className="bg-orange-500/20 p-1.5 rounded-full cursor-pointer hover:bg-orange-500/40 transition-colors" title={h.description}>
+              <AlertTriangle size={20} className="text-orange-500 drop-shadow-md" />
+            </div>
+          </Marker>
+        ))}
       </Map>
+
+      {/* Map Mode Toggle Button */}
+      <div className={clsx(
+        "absolute top-5 z-20 transition-all duration-300",
+        routeResult ? "right-[360px]" : "right-5"
+      )}>
+        <button
+          onClick={() => setMapMode(mapMode === 'satellite' ? 'vector' : 'satellite')}
+          className="bg-white/95 dark:bg-[rgba(23,27,26,0.92)] backdrop-blur-md border border-stone-200 dark:border-outline-variant p-2 rounded-xl shadow-lg text-gray-900 dark:text-on-surface hover:bg-stone-100 dark:hover:bg-surface-container-high transition-colors"
+          title={`Switch to ${mapMode === 'satellite' ? 'Vector' : 'Satellite'} mode`}
+        >
+          {mapMode === 'satellite' ? <MapIcon size={20} /> : <Globe size={20} />}
+        </button>
+      </div>
 
       {/* Cut-off Alert Banner */}
       <AnimatePresence>
@@ -413,10 +453,11 @@ export default function CommandCenter({
             initial={{ y: -100, opacity: 0, x: '-50%' }}
             animate={{ y: 0, opacity: 1, x: '-50%' }}
             exit={{ y: -100, opacity: 0, x: '-50%' }}
-            className="absolute top-4 left-1/2 z-50 bg-red-600/90 backdrop-blur-md text-white px-6 py-3 rounded-full shadow-lg border border-red-400 flex items-center gap-3"
+            transition={{ type: 'spring', stiffness: 100, damping: 20 }}
+            className="absolute top-5 left-1/2 z-50 bg-stone-100/95 dark:bg-[rgba(23,27,26,0.92)] backdrop-blur-md px-5 py-2.5 rounded-xl shadow-lg border border-amber-300 dark:border-secondary flex items-center gap-3 text-gray-900 dark:text-on-surface"
           >
-            <AlertTriangle size={20} className="animate-pulse" />
-            <span className="font-bold tracking-wide">CRITICAL ALERT: {dashboardMetrics.cutoffCount} FACILITIES CUT-OFF BY FLOODWATERS</span>
+            <AlertTriangle size={18} className="text-amber-600 dark:text-secondary" />
+            <span className="font-semibold text-sm">Critical Alert: {dashboardMetrics.cutoffCount} facilities isolated by flooding</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -424,37 +465,39 @@ export default function CommandCenter({
       {/* Tooltip for hovering over map features */}
       {hoverInfo && hoverInfo.feature && (
         <div 
-          className="absolute z-50 pointer-events-none bg-white/90 dark:bg-[rgba(17,19,24,0.9)] backdrop-blur-md border border-gray-200 dark:border-[rgba(59,73,75,0.4)] rounded text-xs text-gray-900 dark:text-gray-100 p-2 shadow-lg"
+          className="absolute z-50 pointer-events-none bg-white/95 dark:bg-[rgba(23,27,26,0.92)] backdrop-blur-md border border-stone-200 dark:border-outline-variant rounded-xl text-xs text-gray-900 dark:text-on-surface p-3 shadow-lg"
           style={{ left: hoverInfo.x + 10, top: hoverInfo.y + 10 }}
         >
-          <div className="font-semibold mb-1 text-cyan-600 dark:text-primary-container border-b border-gray-200 dark:border-outline-variant pb-1">
-            Road Segment
+          <div className="font-semibold mb-2 text-primary border-b border-stone-200 dark:border-outline-variant pb-1.5 flex items-center gap-1.5">
+            <Route size={14} /> Road Segment
           </div>
-          <div className="flex flex-col gap-1">
-            <span><strong>Status:</strong> {hoverInfo.feature.properties?.status || 'Unknown'}</span>
-            <span><strong>Water Level:</strong> {hoverInfo.feature.properties?.water_level_m?.toFixed(2) || '0.00'} m</span>
+          <div className="flex flex-col gap-1.5">
+            <span className="flex justify-between gap-4"><span className="text-gray-500 dark:text-on-surface-variant">Status</span> <span className="font-medium">{hoverInfo.feature.properties?.status || 'Unknown'}</span></span>
+            <span className="flex justify-between gap-4"><span className="text-gray-500 dark:text-on-surface-variant">Water Level</span> <span className="font-medium">{hoverInfo.feature.properties?.water_level_m?.toFixed(2) || '0.00'} m</span></span>
           </div>
         </div>
       )}
 
+      {/* LEFT PANELS WRAPPER */}
+      <div className="absolute left-5 top-5 bottom-10 flex flex-col justify-between pointer-events-none z-10 w-[380px]">
       {/* 4. LEFT PANEL (DECLUTTERED) */}
       <motion.div 
         initial={{ x: -400, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
-        className="absolute top-20 left-6 w-[400px] z-10 bg-white/90 dark:bg-[rgba(17,19,24,0.85)] backdrop-blur-xl border border-gray-200 dark:border-[rgba(59,73,75,0.4)] rounded-xl shadow-2xl flex flex-col p-5 text-gray-900 dark:text-white"
+        className="pointer-events-auto bg-white/95 dark:bg-[rgba(23,27,26,0.92)] backdrop-blur-md border border-stone-200 dark:border-outline-variant rounded-xl shadow-2xl flex flex-col p-5 text-gray-900 dark:text-on-surface font-sans overflow-y-auto max-h-[50vh] shrink-0 mb-4"
       >
-        <div className="flex items-center gap-3 mb-4 border-b border-gray-200 dark:border-outline-variant pb-4">
-          <Navigation className="text-cyan-600 dark:text-primary-container" size={24} />
-          <h2 className="text-lg font-bold tracking-wider uppercase">ORBITRA DISASTER ROUTING</h2>
+        <div className="flex items-center gap-3 mb-5 border-l-4 border-primary pl-3">
+          <Navigation className="text-primary" size={22} />
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-on-surface">Route Planning</h2>
         </div>
 
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1 relative">
-            <label className="text-xs font-semibold text-gray-500 dark:text-on-surface-variant uppercase tracking-wider">Origin</label>
+          <div className="flex flex-col gap-1.5 relative">
+            <label className="text-sm font-medium text-gray-600 dark:text-on-surface-variant">Origin</label>
             <input 
-              className="w-full bg-gray-50 dark:bg-surface-container-highest border border-gray-200 dark:border-outline-variant rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
-              placeholder="Search for origin..."
+              className="w-full bg-stone-50 dark:bg-surface-container border border-stone-200 dark:border-outline-variant rounded-lg p-2.5 text-sm focus:outline-none focus:border-primary transition-colors text-gray-900 dark:text-on-surface placeholder-gray-400 dark:placeholder-on-surface-variant"
+              placeholder="Search for an origin facility..."
               value={originSearch}
               onChange={(e) => {
                 setOriginSearch(e.target.value);
@@ -462,11 +505,11 @@ export default function CommandCenter({
               }}
             />
             {originResults.length > 0 && (
-              <div className="absolute top-full left-0 right-0 bg-white dark:bg-surface-container border border-gray-200 dark:border-outline-variant mt-1 rounded shadow-xl z-50 max-h-[200px] overflow-y-auto">
+              <div className="absolute top-full left-0 right-0 bg-white/95 dark:bg-[rgba(23,27,26,0.95)] backdrop-blur-md border border-stone-200 dark:border-outline-variant mt-1 rounded-lg shadow-xl z-50 max-h-[200px] overflow-y-auto">
                 {originResults.map(r => (
                   <div 
                     key={r.place_id} 
-                    className="p-2 text-xs hover:bg-cyan-50 dark:hover:bg-primary/20 cursor-pointer border-b border-gray-100 dark:border-outline-variant/30 last:border-b-0"
+                    className="p-3 text-sm hover:bg-stone-100 dark:hover:bg-surface-container-high cursor-pointer border-b border-stone-100 dark:border-outline-variant last:border-b-0 text-gray-900 dark:text-on-surface"
                     onClick={() => {
                       setOrigin({ properties: { id: r.place_id, type: 'relief_centre' }, geometry: { coordinates: [parseFloat(r.lon), parseFloat(r.lat)] } });
                       setOriginSearch(r.display_name.split(',')[0]);
@@ -480,11 +523,11 @@ export default function CommandCenter({
             )}
           </div>
 
-          <div className="flex flex-col gap-1 relative">
-            <label className="text-xs font-semibold text-gray-500 dark:text-on-surface-variant uppercase tracking-wider">Destination</label>
+          <div className="flex flex-col gap-1.5 relative">
+            <label className="text-sm font-medium text-gray-600 dark:text-on-surface-variant">Destination</label>
             <input 
-              className="w-full bg-gray-50 dark:bg-surface-container-highest border border-gray-200 dark:border-outline-variant rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500"
-              placeholder="Search for destination..."
+              className="w-full bg-stone-50 dark:bg-surface-container border border-stone-200 dark:border-outline-variant rounded-lg p-2.5 text-sm focus:outline-none focus:border-primary transition-colors text-gray-900 dark:text-on-surface placeholder-gray-400 dark:placeholder-on-surface-variant"
+              placeholder="Search for a destination facility..."
               value={destSearch}
               onChange={(e) => {
                 setDestSearch(e.target.value);
@@ -492,11 +535,11 @@ export default function CommandCenter({
               }}
             />
             {destResults.length > 0 && (
-              <div className="absolute top-full left-0 right-0 bg-white dark:bg-surface-container border border-gray-200 dark:border-outline-variant mt-1 rounded shadow-xl z-50 max-h-[200px] overflow-y-auto">
+              <div className="absolute top-full left-0 right-0 bg-white/95 dark:bg-[rgba(23,27,26,0.95)] backdrop-blur-md border border-stone-200 dark:border-outline-variant mt-1 rounded-lg shadow-xl z-50 max-h-[200px] overflow-y-auto">
                 {destResults.map(r => (
                   <div 
                     key={r.place_id} 
-                    className="p-2 text-xs hover:bg-cyan-50 dark:hover:bg-primary/20 cursor-pointer border-b border-gray-100 dark:border-outline-variant/30 last:border-b-0"
+                    className="p-3 text-sm hover:bg-stone-100 dark:hover:bg-surface-container-high cursor-pointer border-b border-stone-100 dark:border-outline-variant last:border-b-0 text-gray-900 dark:text-on-surface"
                     onClick={() => {
                       setDestination({ properties: { id: r.place_id, type: 'hospital' }, geometry: { coordinates: [parseFloat(r.lon), parseFloat(r.lat)] } });
                       setDestSearch(r.display_name.split(',')[0]);
@@ -514,36 +557,121 @@ export default function CommandCenter({
             onClick={onCalculateRoute}
             disabled={!origin || !destination || isCalculating}
             className={clsx(
-              "w-full py-3 px-4 mt-2 rounded-lg font-medium text-sm transition-all duration-300 flex items-center justify-center gap-2",
+              "w-full py-2.5 px-4 mt-2 rounded-lg font-medium text-sm transition-all duration-300 flex items-center justify-center gap-2",
               (!origin || !destination || isCalculating)
-                ? "bg-gray-100 dark:bg-surface-container border border-gray-200 dark:border-outline-variant text-gray-400 dark:text-on-surface-variant opacity-50 cursor-not-allowed"
-                : "bg-cyan-50 dark:bg-[rgba(0,240,255,0.08)] border border-cyan-500 dark:border-primary-container text-cyan-700 dark:text-primary-container hover:bg-cyan-100 shadow-sm"
+                ? "bg-stone-100 dark:bg-surface-container border border-stone-200 dark:border-outline-variant text-gray-400 dark:text-on-surface-variant opacity-60 cursor-not-allowed"
+                : "bg-primary text-white dark:text-on-surface hover:brightness-110 shadow-sm border border-transparent"
             )}
           >
             {isCalculating ? (
-              <><Loader2 size={18} className="animate-spin" /> CALCULATING...</>
+              <><Loader2 size={16} className="animate-spin" /> Computing route...</>
             ) : (
-              <><Route size={18} /> GENERATE SAFE ROUTE</>
+              <><Route size={16} /> Compute Route</>
             )}
+          </button>
+          
+          {/* Report Hazard Button */}
+          <button
+            onClick={() => setIsReportingMode(!isReportingMode)}
+            className={clsx(
+              "w-full py-2.5 px-4 mt-1 rounded-lg font-medium text-sm transition-all duration-300 flex items-center justify-center gap-2 border",
+              isReportingMode
+                ? "bg-orange-500 text-white border-transparent shadow-sm"
+                : "bg-stone-50 dark:bg-surface-container text-gray-700 dark:text-on-surface border-stone-200 dark:border-outline-variant hover:bg-stone-100 dark:hover:bg-surface-container-high"
+            )}
+          >
+            <AlertTriangle size={16} />
+            {isReportingMode ? "Cancel Reporting" : "Report Hazard"}
           </button>
         </div>
 
-        <div className="mt-6 pt-4 border-t border-gray-200 dark:border-outline-variant grid grid-cols-3 gap-2 text-center">
-          <div className="flex flex-col">
-            <span className="text-[10px] text-gray-500 dark:text-on-surface-variant uppercase font-bold">Total Network</span>
-            <span className="text-lg font-bold">{dashboardMetrics.total} km</span>
+        <div className="mt-6 pt-5 border-t border-stone-200 dark:border-outline-variant grid grid-cols-3 gap-3">
+          <div className="flex flex-col bg-stone-50 dark:bg-surface-container p-2.5 rounded-lg border border-stone-100 dark:border-outline-variant">
+            <span className="text-xs text-gray-500 dark:text-on-surface-variant mb-1">Network</span>
+            <span className="text-sm font-semibold">{dashboardMetrics.total} km</span>
           </div>
-          <div className="flex flex-col text-green-600 dark:text-green-400">
-            <span className="text-[10px] uppercase font-bold">Usable Roads</span>
-            <span className="text-lg font-bold">{dashboardMetrics.passable} km</span>
+          <div className="flex flex-col bg-stone-50 dark:bg-surface-container p-2.5 rounded-lg border border-stone-100 dark:border-outline-variant text-emerald-600 dark:text-emerald-400">
+            <span className="text-xs text-gray-500 dark:text-on-surface-variant mb-1">Usable</span>
+            <span className="text-sm font-semibold">{dashboardMetrics.passable} km</span>
           </div>
-          <div className="flex flex-col text-red-600 dark:text-red-400">
-            <span className="text-[10px] uppercase font-bold">Submerged</span>
-            <span className="text-lg font-bold">{dashboardMetrics.submerged} km</span>
+          <div className="flex flex-col bg-stone-50 dark:bg-surface-container p-2.5 rounded-lg border border-stone-100 dark:border-outline-variant text-red-600 dark:text-red-400">
+            <span className="text-xs text-gray-500 dark:text-on-surface-variant mb-1">Submerged</span>
+            <span className="text-sm font-semibold">{dashboardMetrics.submerged} km</span>
           </div>
         </div>
       </motion.div>
 
+
+      {/* 6. LEGEND PANEL */}
+      <motion.div 
+        initial={{ y: 100, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+        className="pointer-events-auto mt-auto bg-white/95 dark:bg-[rgba(23,27,26,0.92)] backdrop-blur-md border border-stone-200 dark:border-outline-variant rounded-xl shadow-xl p-4 w-[240px] text-gray-900 dark:text-on-surface font-sans shrink-0"
+      >
+        <div className="flex items-center gap-2 mb-3 border-b border-stone-200 dark:border-outline-variant pb-2">
+          <Layers className="text-gray-500 dark:text-on-surface-variant" size={16} />
+          <h3 className="text-sm font-semibold">Map Legend</h3>
+        </div>
+        
+        <div className="flex flex-col gap-3">
+          <label className="flex items-center gap-3 cursor-pointer group">
+            <input 
+              type="checkbox" 
+              checked={visibleLayers.clear}
+              onChange={(e) => setVisibleLayers(prev => ({ ...prev, clear: e.target.checked }))}
+              className="accent-primary"
+            />
+            <div className="w-5 h-1 rounded-full bg-[#64748b]"></div>
+            <span className="text-xs text-gray-700 dark:text-on-surface-variant group-hover:text-gray-900 dark:group-hover:text-on-surface">Clear Road</span>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer group">
+            <input 
+              type="checkbox" 
+              checked={visibleLayers.partial}
+              onChange={(e) => setVisibleLayers(prev => ({ ...prev, partial: e.target.checked }))}
+              className="accent-primary"
+            />
+            <div className="w-5 h-1 rounded-full bg-[#f59e0b]"></div>
+            <span className="text-xs text-gray-700 dark:text-on-surface-variant group-hover:text-gray-900 dark:group-hover:text-on-surface">Partially Flooded</span>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer group">
+            <input 
+              type="checkbox" 
+              checked={visibleLayers.submerged}
+              onChange={(e) => setVisibleLayers(prev => ({ ...prev, submerged: e.target.checked }))}
+              className="accent-primary"
+            />
+            <div className="w-5 h-1 rounded-full bg-[#ef4444]"></div>
+            <span className="text-xs text-gray-700 dark:text-on-surface-variant group-hover:text-gray-900 dark:group-hover:text-on-surface">Submerged Road</span>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer group">
+            <input 
+              type="checkbox" 
+              checked={visibleLayers.flood}
+              onChange={(e) => setVisibleLayers(prev => ({ ...prev, flood: e.target.checked }))}
+              className="accent-primary"
+            />
+            <div className="w-5 h-2 rounded-sm bg-[#00E5FF] opacity-40 border border-[#00E5FF]"></div>
+            <span className="text-xs text-gray-700 dark:text-on-surface-variant group-hover:text-gray-900 dark:group-hover:text-on-surface">Flood Areas</span>
+          </label>
+
+          <div className="mt-1 pt-2 border-t border-stone-200 dark:border-outline-variant flex flex-col gap-2">
+            <div className="flex items-center gap-3">
+              <div className="w-5 h-1.5 rounded-full bg-[#22C55E]"></div>
+              <span className="text-xs font-medium">Safe Route</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-5 h-0 border-t-2 border-dashed border-[#ef4444]"></div>
+              <span className="text-xs line-through text-gray-500 dark:text-on-surface-variant">Baseline Route</span>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+      </div>
+
+      {/* RIGHT PANELS WRAPPER */}
+      <div className="absolute right-5 top-5 bottom-10 flex flex-col justify-between pointer-events-none z-10 w-[340px]">
       {/* 5. ROUTE RESULTS PANEL */}
       <AnimatePresence>
         {routeResult && (
@@ -551,68 +679,76 @@ export default function CommandCenter({
             initial={{ x: 400, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 400, opacity: 0 }}
-            transition={{ duration: 0.5, ease: "easeOut", delay: 0.1 }}
-            className="absolute top-20 right-6 w-[360px] z-10 bg-white/90 dark:bg-[rgba(17,19,24,0.85)] backdrop-blur-xl border border-gray-200 dark:border-[rgba(59,73,75,0.4)] rounded-xl shadow-2xl flex flex-col p-5 max-h-[calc(100vh-160px)] overflow-y-auto text-gray-900 dark:text-white"
+            transition={{ duration: 0.4, ease: "easeOut" }}
+            className="pointer-events-auto bg-white/95 dark:bg-[rgba(23,27,26,0.92)] backdrop-blur-md border border-stone-200 dark:border-outline-variant rounded-xl shadow-2xl flex flex-col p-5 max-h-[50vh] overflow-y-auto text-gray-900 dark:text-on-surface font-sans shrink-0 mb-4"
           >
-            <div className="flex items-center gap-3 mb-5 border-b border-gray-200 dark:border-outline-variant pb-4">
-              <Route className="text-cyan-600 dark:text-primary-container" size={24} />
-              <h2 className="text-lg font-bold tracking-wider">ROUTE ANALYSIS</h2>
+            <div className="flex items-center justify-between mb-5 border-b border-stone-200 dark:border-outline-variant pb-4">
+              <div className="flex items-center gap-2">
+                <Route className="text-primary" size={20} />
+                <h2 className="text-lg font-semibold">Route Analysis</h2>
+              </div>
+              <button 
+                onClick={onClearRoute}
+                className="text-xs text-gray-500 hover:text-gray-900 dark:text-on-surface-variant dark:hover:text-on-surface transition-colors"
+              >
+                Clear
+              </button>
             </div>
 
             {routeResult.status === 'ERROR' && (
-              <div className="flex flex-col items-center justify-center text-center py-8 gap-3">
-                <AlertTriangle className="text-red-500" size={48} />
-                <h3 className="font-bold text-red-400 text-lg">Routing Error</h3>
-                <p className="text-sm text-red-300">An error occurred while generating the route.</p>
+              <div className="flex flex-col items-center justify-center text-center py-6 gap-3">
+                <AlertTriangle className="text-red-500" size={40} />
+                <h3 className="font-semibold text-red-600 dark:text-red-400">Routing Error</h3>
+                <p className="text-sm text-gray-600 dark:text-on-surface-variant">An error occurred while generating the route.</p>
               </div>
             )}
 
             {routeResult.status === 'DESTINATION_ISOLATED' && (
-              <div className="flex flex-col items-center justify-center text-center py-8 gap-3">
-                <AlertTriangle className="text-orange-500" size={48} />
-                <h3 className="font-bold text-orange-400 text-lg">Destination Isolated</h3>
-                <p className="text-sm text-orange-200">No safe route exists. All paths are flooded.</p>
+              <div className="flex flex-col items-center justify-center text-center py-6 gap-3">
+                <AlertTriangle className="text-amber-500 dark:text-secondary" size={40} />
+                <h3 className="font-semibold text-amber-600 dark:text-secondary">Destination Isolated</h3>
+                <p className="text-sm text-gray-600 dark:text-on-surface-variant">No safe route exists. All paths are flooded.</p>
               </div>
             )}
 
             {routeResult.status === 'SUCCESS' && (
-              <div className="flex flex-col gap-6">
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 flex items-center gap-3">
-                  <CheckCircle className="text-emerald-400" size={24} />
+              <div className="flex flex-col gap-5">
+                <div className="bg-primary/10 border border-primary/20 rounded-lg p-3.5 flex items-center gap-3">
+                  <CheckCircle className="text-primary" size={20} />
                   <div>
-                    <div className="text-emerald-400 font-bold text-sm uppercase tracking-wide">Route Secured</div>
-                    <div className="text-emerald-200/70 text-xs">Safe path established</div>
+                    <div className="text-primary font-semibold text-sm">Route Secured</div>
+                    <div className="text-primary/70 text-xs">Safe path established</div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-surface-container-highest border border-outline-variant rounded-lg p-3 flex flex-col gap-1">
-                    <span className="text-xs text-on-surface-variant uppercase">Distance</span>
-                    <span className="text-xl font-bold text-on-surface">
+                  <div className="bg-stone-50 dark:bg-surface-container border border-stone-100 dark:border-outline-variant rounded-lg p-3 flex flex-col gap-1">
+                    <span className="text-xs text-gray-500 dark:text-on-surface-variant">Distance</span>
+                    <span className="text-lg font-semibold text-gray-900 dark:text-on-surface">
                       {routeResult.safe_route?.distance_km != null 
                         ? `${routeResult.safe_route.distance_km.toFixed(2)} km` 
                         : '—'}
                     </span>
                   </div>
-                  <div className="bg-surface-container-highest border border-outline-variant rounded-lg p-3 flex flex-col gap-1">
-                    <span className="text-xs text-on-surface-variant uppercase">Est. Time</span>
-                    <span className="text-xl font-bold text-on-surface">
+                  <div className="bg-stone-50 dark:bg-surface-container border border-stone-100 dark:border-outline-variant rounded-lg p-3 flex flex-col gap-1">
+                    <span className="text-xs text-gray-500 dark:text-on-surface-variant">Est. Time</span>
+                    <span className="text-lg font-semibold text-gray-900 dark:text-on-surface">
                       {routeResult.safe_route?.distance_km != null 
                         ? `${(routeResult.safe_route.distance_km * 2).toFixed(0)} min` 
                         : '—'}
                     </span>
                   </div>
-                  <div className="bg-surface-container-highest border border-outline-variant rounded-lg p-3 flex flex-col gap-1">
-                    <span className="text-xs text-on-surface-variant uppercase">Flooded Areas</span>
-                    <span className="text-xl font-bold text-on-surface">
+                  <div className="bg-stone-50 dark:bg-surface-container border border-stone-100 dark:border-outline-variant rounded-lg p-3 flex flex-col gap-1">
+                    <span className="text-xs text-gray-500 dark:text-on-surface-variant">Flooded Areas</span>
+                    <span className="text-lg font-semibold text-gray-900 dark:text-on-surface">
                       {routeResult.safe_route?.submerged_segments_crossed != null 
                         ? routeResult.safe_route.submerged_segments_crossed 
                         : '—'}
                     </span>
                   </div>
-                  <div className="bg-surface-container-highest border border-outline-variant rounded-lg p-3 flex flex-col gap-1">
-                    <span className="text-xs text-on-surface-variant uppercase">Detour</span>
-                    <span className="text-xl font-bold text-on-surface">
+                  <div className="bg-stone-50 dark:bg-surface-container border border-stone-100 dark:border-outline-variant rounded-lg p-3 flex flex-col gap-1">
+                    <span className="text-xs text-gray-500 dark:text-on-surface-variant">Detour</span>
+                    <span className="text-lg font-semibold text-gray-900 dark:text-on-surface">
                       {routeResult.analytics?.detour_overhead_km != null 
                         ? `+${routeResult.analytics.detour_overhead_km.toFixed(2)} km` 
                         : '—'}
@@ -621,12 +757,12 @@ export default function CommandCenter({
                 </div>
 
                 {routeResult.analytics?.recommendation && (
-                  <div className="flex flex-col gap-2">
-                    <span className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider flex items-center gap-1.5">
+                  <div className="flex flex-col gap-2 pt-2 border-t border-stone-200 dark:border-outline-variant">
+                    <span className="text-xs font-medium text-gray-600 dark:text-on-surface-variant flex items-center gap-1.5">
                       <Info size={14} /> Tactical Assessment
                     </span>
-                    <p className="text-sm text-on-surface bg-surface-container-highest p-3 rounded-lg border border-outline-variant leading-relaxed">
-                      {routeResult.analytics.recommendation}
+                    <p className="text-sm text-gray-800 dark:text-on-surface bg-stone-50 dark:bg-surface-container p-3.5 rounded-lg border-l-2 border-primary/50 italic leading-relaxed">
+                      "{routeResult.analytics.recommendation}"
                     </p>
                   </div>
                 )}
@@ -636,40 +772,47 @@ export default function CommandCenter({
         )}
       </AnimatePresence>
 
-      {/* 6. LEGEND PANEL */}
-      <motion.div 
-        initial={{ y: 100, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.3 }}
-        className="absolute bottom-10 left-6 z-10 bg-white/90 dark:bg-[rgba(17,19,24,0.85)] backdrop-blur-xl border border-gray-200 dark:border-[rgba(59,73,75,0.4)] rounded-lg shadow-xl p-4 w-[240px] text-gray-900 dark:text-white"
+      {/* 7. DATA INTELLIGENCE PANEL */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4, delay: 0.3 }}
+        className="pointer-events-auto mt-auto self-end bg-white/95 dark:bg-[rgba(23,27,26,0.92)] backdrop-blur-md border border-stone-200 dark:border-outline-variant rounded-xl shadow-xl p-4 w-[260px] text-gray-900 dark:text-on-surface font-sans shrink-0"
       >
-        <div className="flex items-center gap-2 mb-3 border-b border-gray-200 dark:border-outline-variant pb-2">
-          <Layers className="text-gray-500 dark:text-on-surface-variant" size={16} />
-          <h3 className="text-xs font-bold uppercase tracking-wider">Map Legend</h3>
+        <div className="flex items-center gap-2 mb-3 border-b border-stone-200 dark:border-outline-variant pb-2">
+          <Info className="text-primary" size={16} />
+          <h3 className="text-sm font-semibold">Data Intelligence</h3>
         </div>
-        <div className="flex flex-col gap-2.5">
-          <div className="flex items-center gap-3">
-            <div className="w-6 h-1 rounded-full bg-[#64748b]"></div>
-            <span className="text-xs">Clear Road</span>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1 bg-stone-50 dark:bg-surface-container rounded-lg p-2.5 border border-stone-100 dark:border-outline-variant">
+            <span className="text-xs text-gray-500 dark:text-on-surface-variant">Live Weather (Origin)</span>
+            {liveWeather && liveWeather.data ? (
+              <span className="text-sm font-semibold text-gray-900 dark:text-on-surface">
+                {liveWeather.data.temperature}°C, {liveWeather.data.windspeed} km/h
+              </span>
+            ) : (
+              <span className="text-sm font-medium text-gray-400 dark:text-on-surface-variant">
+                Unavailable
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-3">
-            <div className="w-6 h-1 rounded-full bg-[#f59e0b]"></div>
-            <span className="text-xs">Partially Flooded</span>
+          <div className="flex flex-col gap-1 bg-stone-50 dark:bg-surface-container rounded-lg p-2.5 border border-stone-100 dark:border-outline-variant">
+            <span className="text-xs text-gray-500 dark:text-on-surface-variant">Hazard Reports</span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-on-surface">
+              {hazards ? hazards.length : 0} Active
+            </span>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="w-6 h-1 rounded-full bg-[#ef4444]"></div>
-            <span className="text-xs">Submerged Road</span>
-          </div>
-          <div className="flex items-center gap-3 mt-1 pt-2 border-t border-gray-200 dark:border-outline-variant/50">
-            <div className="w-6 h-1.5 rounded-full bg-[#22C55E] shadow-[0_0_8px_rgba(34,197,94,0.4)]"></div>
-            <span className="text-xs font-medium">Safe Route</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="w-6 h-0 border-t-2 border-dashed border-[#ef4444]"></div>
-            <span className="text-xs line-through opacity-70">Baseline Route</span>
-          </div>
+          {flood && flood.message && (
+            <div className="flex flex-col gap-1 bg-stone-50 dark:bg-surface-container rounded-lg p-2.5 border border-stone-100 dark:border-outline-variant">
+              <span className="text-xs text-gray-500 dark:text-on-surface-variant">Flood Observation</span>
+              <span className="text-xs font-semibold text-amber-600 dark:text-secondary">
+                {flood.message}
+              </span>
+            </div>
+          )}
         </div>
       </motion.div>
+      </div>
     </div>
   );
 }

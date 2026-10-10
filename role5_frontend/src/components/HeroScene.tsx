@@ -1,216 +1,207 @@
 import React, { useMemo, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-
-const Terrain = React.memo(({ theme }: { theme: 'light' | 'dark' }) => {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const scanLineRef = useRef<THREE.Mesh>(null);
-  const isLight = theme === 'light';
-
-  // Generate displaced terrain geometry
-  const geometry = useMemo(() => {
-    const geo = new THREE.PlaneGeometry(30, 30, 128, 128);
-    const pos = geo.attributes.position;
-    
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      
-      // Simple pseudo-noise using trig functions
-      let z = Math.sin(x * 0.2) * Math.cos(y * 0.2) * 1.5;
-      z += Math.sin(x * 0.5 + y * 0.8) * 0.5;
-      z += Math.cos(x * 1.2 - y * 0.4) * 0.2;
-      
-      // Keep edges lower to look like an island/segment
-      const dist = Math.sqrt(x*x + y*y);
-      const falloff = Math.max(0, 1 - dist / 15);
-      
-      pos.setZ(i, z * falloff);
-    }
-    
-    geo.computeVertexNormals();
-    return geo;
-  }, []);
-
-  useFrame((state) => {
-    if (scanLineRef.current) {
-      // Sweep scanline across the terrain (Z axis locally since it's rotated)
-      const time = state.clock.getElapsedTime();
-      const sweep = (time % 8) / 8; // 0 to 1 over 8 seconds
-      const yPos = 15 - sweep * 30; // 15 to -15
-      scanLineRef.current.position.y = yPos;
-    }
-  });
-
-  return (
-    <group rotation={[-Math.PI / 2, 0, 0]}>
-      {/* Solid base terrain */}
-      <mesh geometry={geometry}>
-        <meshStandardMaterial 
-          color={isLight ? "#e2e8f0" : "#0a0e17"} 
-          roughness={0.8}
-          metalness={0.2}
-        />
-      </mesh>
-      
-      {/* Wireframe overlay */}
-      <mesh geometry={geometry} position={[0, 0, 0.01]}>
-        <meshBasicMaterial 
-          color={isLight ? "#0284c7" : "#00f0ff"} 
-          wireframe={true} 
-          transparent={true} 
-          opacity={isLight ? 0.2 : 0.06} 
-        />
-      </mesh>
-
-      {/* Scanning Line Effect */}
-      <mesh ref={scanLineRef} position={[0, 15, 0.1]}>
-        <planeGeometry args={[30, 0.2]} />
-        <meshBasicMaterial 
-          color={isLight ? "#0284c7" : "#00f0ff"} 
-          transparent={true} 
-          opacity={0.3} 
-          additiveBlending={THREE.AdditiveBlending}
-        />
-      </mesh>
-    </group>
-  );
-});
-
-Terrain.displayName = 'Terrain';
-
-const Water = React.memo(({ theme }: { theme: 'light' | 'dark' }) => {
-  const waterRef = useRef<THREE.Mesh>(null);
-  const isLight = theme === 'light';
-  
-  useFrame((state) => {
-    if (waterRef.current) {
-      // Gentle undulation
-      waterRef.current.position.y = 0.5 + Math.sin(state.clock.elapsedTime * 0.5) * 0.05;
-    }
-  });
-
-  return (
-    <mesh ref={waterRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.5, 0]}>
-      <planeGeometry args={[30, 30, 32, 32]} />
-      <meshStandardMaterial 
-        color={isLight ? "#38bdf8" : "#0891b2"} 
-        transparent={true} 
-        opacity={isLight ? 0.3 : 0.15}
-        roughness={0.1}
-        metalness={0.8}
-      />
-    </mesh>
-  );
-});
-
-Water.displayName = 'Water';
-
-const Particles = React.memo(({ theme }: { theme: 'light' | 'dark' }) => {
-  const pointsRef = useRef<THREE.Points>(null);
-  const isLight = theme === 'light';
-  
-  const particleCount = 250;
-  const positions = useMemo(() => {
-    const pos = new Float32Array(particleCount * 3);
-    for (let i = 0; i < particleCount; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 30; // x
-      pos[i * 3 + 1] = Math.random() * 10;     // y
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 30; // z
-    }
-    return pos;
-  }, []);
-
-  useFrame((state, delta) => {
-    if (pointsRef.current) {
-      const positions = pointsRef.current.geometry.attributes.position.array as Float32Array;
-      for (let i = 0; i < particleCount; i++) {
-        // Move upward
-        positions[i * 3 + 1] += delta * 0.5;
-        // Add subtle horizontal drift
-        positions[i * 3] += Math.sin(state.clock.elapsedTime + i) * delta * 0.2;
-        
-        // Wrap around when reaching top
-        if (positions[i * 3 + 1] > 10) {
-          positions[i * 3 + 1] = 0;
-        }
-      }
-      pointsRef.current.geometry.attributes.position.needsUpdate = true;
-    }
-  });
-
-  return (
-    <points ref={pointsRef}>
-      <bufferGeometry>
-        <bufferAttribute 
-          attach="attributes-position"
-          count={particleCount}
-          array={positions}
-          itemSize={3}
-        />
-      </bufferGeometry>
-      <pointsMaterial 
-        size={0.02} 
-        color={isLight ? "#0284c7" : "#e0ffff"} 
-        transparent={true} 
-        opacity={isLight ? 0.4 : 0.6}
-        sizeAttenuation={true}
-        blending={isLight ? THREE.NormalBlending : THREE.AdditiveBlending}
-      />
-    </points>
-  );
-});
-
-Particles.displayName = 'Particles';
+import { Canvas, useFrame } from '@react-three/fiber';
 
 export interface HeroSceneProps {
   className?: string;
   theme: 'light' | 'dark';
 }
 
-const HeroScene: React.FC<HeroSceneProps> = ({ className, theme }) => {
-  const isLight = theme === 'light';
+const DataPoint = React.memo(({ position }: { position: THREE.Vector3 }) => {
+  const ref = useRef<THREE.Mesh>(null);
+  const timeOffset = useMemo(() => Math.random() * Math.PI * 2, []);
   
+  useFrame((state) => {
+    if (ref.current) {
+      const scale = 1 + Math.sin(state.clock.elapsedTime * 2 + timeOffset) * 0.3;
+      ref.current.scale.set(scale, scale, scale);
+    }
+  });
+
   return (
-    <div className={className}>
+    <mesh position={position} ref={ref}>
+      <sphereGeometry args={[0.025, 16, 16]} />
+      <meshBasicMaterial color="#D5B477" />
+    </mesh>
+  );
+});
+
+const ScanLine = React.memo(() => {
+  const ref = useRef<THREE.Group>(null);
+  useFrame((state, delta) => {
+    if (ref.current) {
+      ref.current.rotation.y += delta * 0.2;
+    }
+  });
+
+  return (
+    <group ref={ref} rotation={[0.35, 0, 0]}>
+      <mesh>
+        <torusGeometry args={[1.4, 0.003, 16, 100]} />
+        <meshBasicMaterial color="#78958A" transparent opacity={0.3} blending={THREE.AdditiveBlending} />
+      </mesh>
+    </group>
+  );
+});
+
+const Atmosphere = React.memo(({ theme }: { theme: 'light' | 'dark' }) => {
+  return (
+    <mesh>
+      <sphereGeometry args={[1.35, 40, 40]} />
+      <meshBasicMaterial 
+        color="#78958A" 
+        transparent 
+        opacity={theme === 'dark' ? 0.1 : 0.06}
+        side={THREE.BackSide}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+      />
+    </mesh>
+  );
+});
+
+const Globe = React.memo(({ theme }: { theme: 'light' | 'dark' }) => {
+  const globeRef = useRef<THREE.Group>(null);
+  
+  useFrame((state, delta) => {
+    if (globeRef.current) {
+      globeRef.current.rotation.y += delta * 0.05;
+    }
+  });
+
+  const { geometry, pts } = useMemo(() => {
+    const geo = new THREE.IcosahedronGeometry(1.2, 45);
+    const pos = geo.attributes.position;
+    const v = new THREE.Vector3();
+    const colors = new Float32Array(pos.count * 3);
+    
+    const oceanC = new THREE.Color(theme === 'dark' ? '#172220' : '#D0D8D6');
+    const landC = new THREE.Color(theme === 'dark' ? '#2c3a35' : '#E2E8E6');
+    
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      v.normalize();
+      
+      const nx = v.x * 2.5;
+      const ny = v.y * 2.5;
+      const nz = v.z * 2.5;
+      
+      let n = Math.sin(nx + Math.cos(ny)) 
+            + Math.sin(ny + Math.cos(nz)) 
+            + Math.sin(nz + Math.cos(nx));
+      n /= 3;
+      
+      let n2 = Math.sin(nx*2.5 + Math.cos(ny*2.5)) 
+             + Math.sin(ny*2.5 + Math.cos(nz*2.5)) 
+             + Math.sin(nz*2.5 + Math.cos(nx*2.5));
+      n2 /= 3;
+      
+      let noiseVal = n + n2 * 0.4;
+            
+      let h = 0;
+      if (noiseVal > 0.15) {
+        h = (noiseVal - 0.15) * 0.06;
+        landC.toArray(colors, i * 3);
+      } else {
+        oceanC.toArray(colors, i * 3);
+      }
+      
+      v.multiplyScalar(1.2 + h);
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    geo.computeVertexNormals();
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    
+    const dataPts: THREE.Vector3[] = [];
+    const cityPts: THREE.Vector3[] = [];
+    let attempts = 0;
+    while(dataPts.length < 15 && attempts < 1000) {
+      attempts++;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos((Math.random() * 2) - 1);
+      const x = Math.sin(phi) * Math.cos(theta);
+      const y = Math.sin(phi) * Math.sin(theta);
+      const z = Math.cos(phi);
+      
+      const nx = x * 2.5;
+      const ny = y * 2.5;
+      const nz = z * 2.5;
+      
+      let n = Math.sin(nx + Math.cos(ny)) + Math.sin(ny + Math.cos(nz)) + Math.sin(nz + Math.cos(nx)); n /= 3;
+      let n2 = Math.sin(nx*2.5 + Math.cos(ny*2.5)) + Math.sin(ny*2.5 + Math.cos(nz*2.5)) + Math.sin(nz*2.5 + Math.cos(nx*2.5)); n2 /= 3;
+      let noiseVal = n + n2 * 0.4;
+            
+      if (noiseVal > 0.15) {
+        let h = (noiseVal - 0.15) * 0.06;
+        if (Math.random() > 0.7) {
+          dataPts.push(new THREE.Vector3(x * (1.2 + h), y * (1.2 + h), z * (1.2 + h)));
+        } else {
+          cityPts.push(new THREE.Vector3(x * (1.2 + h + 0.005), y * (1.2 + h + 0.005), z * (1.2 + h + 0.005)));
+        }
+      }
+    }
+
+    // Create a geometry for city lights
+    const cityGeo = new THREE.BufferGeometry().setFromPoints(cityPts);
+
+    return { geometry: geo, pts: dataPts, cityGeo };
+  }, [theme]);
+
+  return (
+    <group ref={globeRef}>
+      <mesh geometry={geometry}>
+        <meshStandardMaterial vertexColors roughness={0.7} metalness={0.2} />
+      </mesh>
+      
+      <mesh geometry={geometry}>
+        <meshBasicMaterial 
+          color="#78958A" 
+          wireframe 
+          transparent 
+          opacity={theme === 'dark' ? 0.08 : 0.12}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+
+      {/* City lights */ }
+      {theme === 'dark' && (
+        <points geometry={cityGeo}>
+          <pointsMaterial size={0.012} color="#D5B477" transparent opacity={0.6} blending={THREE.AdditiveBlending} sizeAttenuation={true} />
+        </points>
+      )}
+
+      {pts.map((p, i) => (
+        <DataPoint key={i} position={p} />
+      ))}
+    </group>
+  );
+});
+
+const SceneLights = React.memo(({ theme }: { theme: 'light' | 'dark' }) => {
+  return (
+    <>
+      <ambientLight intensity={theme === 'dark' ? 0.8 : 1.2} />
+      <directionalLight position={[5, 3, 2]} intensity={theme === 'dark' ? 2.5 : 3.5} color="#fffcf5" />
+      <pointLight position={[-5, -5, -5]} intensity={theme === 'dark' ? 1.5 : 2.0} color="#78958A" />
+      <pointLight position={[0, -5, 0]} intensity={theme === 'dark' ? 1.5 : 2.0} color="#78958A" />
+    </>
+  );
+});
+
+export default function HeroScene({ className, theme = 'dark' }: HeroSceneProps) {
+  return (
+    <div className={className} style={{ width: '100%', height: '100%' }}>
       <Canvas
-        gl={{ alpha: true, antialias: true }}
-        dpr={[1, 2]}
-        camera={{ position: [0, 8, 12], fov: 45 }}
+        dpr={[1, 1.5]}
+        camera={{ position: [0, 1.5, 4.5], fov: 45 }}
+        gl={{ alpha: true, antialias: true, powerPreference: 'high-performance' }}
       >
-        {/* Lighting */}
-        <ambientLight intensity={isLight ? 0.6 : 0.15} />
-        <directionalLight 
-          position={[10, 15, -5]} 
-          intensity={isLight ? 2 : 1} 
-          color="#ffffff" 
-        />
-        <pointLight 
-          position={[0, -2, 0]} 
-          intensity={isLight ? 8 : 5} 
-          color={isLight ? "#0284c7" : "#00f0ff"} 
-          distance={20}
-        />
-
-        {/* Scene Components */}
-        <Terrain theme={theme} />
-        <Water theme={theme} />
-        <Particles theme={theme} />
-
-        {/* Camera Controls */}
-        <OrbitControls 
-          target={[0, 0, 0]}
-          autoRotate 
-          autoRotateSpeed={0.1}
-          enablePan={false}
-          enableZoom={false}
-          maxPolarAngle={Math.PI / 2.5}
-          minPolarAngle={Math.PI / 4}
-        />
+        <SceneLights theme={theme} />
+        <Globe theme={theme} />
+        <Atmosphere theme={theme} />
+        <ScanLine />
       </Canvas>
     </div>
   );
-};
-
-export default HeroScene;
+}

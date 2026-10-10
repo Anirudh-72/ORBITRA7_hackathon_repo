@@ -44,11 +44,13 @@ app.add_middleware(
 _CACHE: Dict[str, Dict[str, Any]] = {}
 
 
-from fastapi import FastAPI, HTTPException, Query, status, Request
+from fastapi import FastAPI, HTTPException, Query, status, Request, Body
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "role5_frontend" / "dist"
+
+from backend.live_data import hazard_db, fetch_live_weather
 
 class RouteRequest(BaseModel):
     origin: List[float] = Field(..., description="[longitude, latitude] of departure point", min_length=2, max_length=2)
@@ -90,8 +92,22 @@ def get_scenarios():
 
 
 @app.get("/api/layers/flood")
-def get_flood_layer(scenario_id: str = Query(default="kerala_2018")):
+def get_flood_layer(
+    scenario_id: str = Query(default="kerala_2018"),
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None)
+):
     """Retrieve vectorized flood inundation polygons with satellite provenance."""
+    if lat is not None and lon is not None:
+        if not (6.7 <= lat <= 35.5 and 68.1 <= lon <= 97.3):
+            raise HTTPException(status_code=400, detail="Flood monitoring restricted to India.")
+        if not (8.1 <= lat <= 12.8 and 74.8 <= lon <= 77.5):
+            return {
+                "type": "FeatureCollection",
+                "features": [],
+                "message": "No verified flood data available"
+            }
+
     cache_key = f"flood_{scenario_id}"
     if cache_key not in _CACHE:
         try:
@@ -104,8 +120,21 @@ def get_flood_layer(scenario_id: str = Query(default="kerala_2018")):
 
 
 @app.get("/api/layers/roads")
-def get_road_network(scenario_id: str = Query(default="kerala_2018")):
+def get_road_network(
+    scenario_id: str = Query(default="kerala_2018"),
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None)
+):
     """Retrieve classified road network with Clear, Partially Flooded, and Submerged segments."""
+    if lat is not None and lon is not None:
+        if not (6.7 <= lat <= 35.5 and 68.1 <= lon <= 97.3):
+            raise HTTPException(status_code=400, detail="Flood monitoring restricted to India.")
+        if not (8.1 <= lat <= 12.8 and 74.8 <= lon <= 77.5):
+            return {
+                "type": "FeatureCollection",
+                "features": []
+            }
+
     cache_key = f"roads_{scenario_id}"
     if cache_key not in _CACHE:
         try:
@@ -118,8 +147,21 @@ def get_road_network(scenario_id: str = Query(default="kerala_2018")):
 
 
 @app.get("/api/facilities")
-def get_facilities(scenario_id: str = Query(default="kerala_2018")):
+def get_facilities(
+    scenario_id: str = Query(default="kerala_2018"),
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None)
+):
     """Retrieve emergency facilities (relief staging camps, hospitals, evacuation points)."""
+    if lat is not None and lon is not None:
+        if not (6.7 <= lat <= 35.5 and 68.1 <= lon <= 97.3):
+            raise HTTPException(status_code=400, detail="Flood monitoring restricted to India.")
+        if not (8.1 <= lat <= 12.8 and 74.8 <= lon <= 77.5):
+            return {
+                "type": "FeatureCollection",
+                "features": []
+            }
+
     try:
         return get_facilities_geojson(scenario_id)
     except KeyError as e:
@@ -141,6 +183,28 @@ def calculate_route(request: RouteRequest):
     except Exception as e:
         logger.error("Routing calculation failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Routing failure: {str(e)}")
+
+@app.get("/api/live/weather")
+async def get_weather(lat: float = Query(...), lon: float = Query(...)):
+    """Fetch live weather conditions for a specific coordinate."""
+    return await fetch_live_weather(lat, lon)
+
+@app.get("/api/hazards")
+def get_hazards():
+    """Retrieve all active crowd-sourced hazards (potholes, closures)."""
+    return {"status": "success", "data": hazard_db.get_active_hazards()}
+
+@app.post("/api/hazards")
+def create_hazard(
+    lat: float = Body(...), 
+    lon: float = Body(...), 
+    type: str = Body(...), 
+    description: str = Body(...), 
+    severity: str = Body(default="medium")
+):
+    """Report a new geolocated road hazard."""
+    hazard = hazard_db.add_hazard(lat, lon, type, description, severity)
+    return {"status": "success", "data": hazard}
 
 # Mount the built React frontend at the root (must be after all /api/ routes)
 if FRONTEND_DIR.exists():
