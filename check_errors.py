@@ -5,16 +5,18 @@ def run():
         browser = p.chromium.launch()
         page = browser.new_page()
         
-        page.on("console", lambda msg: print(f"CONSOLE: {msg.type}: {msg.text}"))
-        page.on("pageerror", lambda exc: print(f"PAGE ERROR: {exc}"))
-        
         print("Navigating to localhost:8001...")
         try:
             page.goto("http://localhost:8001", timeout=10000)
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(2000)
+            print("Clicking Enter Command Center...")
+            page.click("text=Enter Command Center")
+            page.wait_for_timeout(4000)
+            print("Taking screenshot...")
+            page.screenshot(path="screenshot_app.png")
             print("Loaded successfully")
         except Exception as e:
-            print(f"Navigation error: {e}")
+            print(f"Error: {e}")
         
         browser.close()
 
