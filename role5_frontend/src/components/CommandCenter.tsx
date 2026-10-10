@@ -86,12 +86,13 @@ export default function CommandCenter({
     if (routeResult && routeResult.status === 'SUCCESS' && routeResult.safe_route?.geojson && mapRef.current) {
       try {
         const [minLng, minLat, maxLng, maxLat] = bbox(routeResult.safe_route.geojson);
+        const padHoriz = typeof window !== 'undefined' && window.innerWidth > 1200 ? 320 : 60;
         mapRef.current.fitBounds(
           [
             [minLng, minLat],
             [maxLng, maxLat]
           ],
-          { padding: { top: 100, bottom: 100, left: 450, right: 450 }, duration: 1000 }
+          { padding: { top: 80, bottom: 80, left: padHoriz, right: padHoriz }, duration: 800, maxZoom: 15 }
         );
       } catch (e) {
         console.error("Error fitting bounds to route", e);
@@ -484,12 +485,16 @@ export default function CommandCenter({
             <Layer
               id="baseline-route-layer"
               type="line"
+              layout={{
+                'line-join': 'round',
+                'line-cap': 'round'
+              }}
               paint={{
                 'line-color': '#ef4444',
                 'line-dasharray': [2, 2],
                 'line-width': [
                   'interpolate', ['linear'], ['zoom'],
-                  10, 2,
+                  10, 3,
                   15, 6
                 ]
               }}
@@ -509,13 +514,13 @@ export default function CommandCenter({
                 'line-cap': 'round'
               }}
               paint={{
-                'line-color': '#166534',
+                'line-color': '#052e16',
                 'line-width': [
                   'interpolate', ['linear'], ['zoom'],
-                  10, 6,
-                  15, 14
+                  10, 8,
+                  15, 16
                 ],
-                'line-opacity': 0.6 // Boosted for satellite
+                'line-opacity': 0.85
               }}
             />
             {/* Main Safe Route */}
@@ -530,8 +535,8 @@ export default function CommandCenter({
                 'line-color': '#22C55E', // Vivid Green
                 'line-width': [
                   'interpolate', ['linear'], ['zoom'],
-                  10, 3,
-                  15, 6
+                  10, 5,
+                  15, 10
                 ]
               }}
             />
@@ -784,7 +789,7 @@ export default function CommandCenter({
           </div>
 
           <button
-            onClick={onCalculateRoute}
+            onClick={() => onCalculateRoute()}
             disabled={!origin || !destination || isCalculating}
             className={clsx(
               "w-full py-2.5 px-4 mt-2 rounded-lg font-medium text-sm transition-all duration-300 flex items-center justify-center gap-2",

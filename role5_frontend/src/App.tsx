@@ -340,21 +340,31 @@ function App() {
 
   // ── Route calculation (PRESERVED & EXTENDED) ──
   const handleCalculateRoute = async (optOrigin?: any, optDest?: any) => {
-    const fromPt = optOrigin || origin;
-    const toPt = optDest || destination;
+    const fromPt = (optOrigin && optOrigin.geometry && Array.isArray(optOrigin.geometry.coordinates)) 
+      ? optOrigin 
+      : origin;
+    const toPt = (optDest && optDest.geometry && Array.isArray(optDest.geometry.coordinates)) 
+      ? optDest 
+      : destination;
+
     if (!fromPt || !toPt) return;
     setIsCalculating(true);
     setRouteResult(null);
     
-    const request: RouteRequest = {
-      origin: fromPt.geometry.coordinates,
-      destination: toPt.geometry.coordinates,
-      scenario_id: 'kerala_2018'
-    };
-    
-    const result = await calculateRoute(request);
-    setRouteResult(result);
-    setIsCalculating(false);
+    try {
+      const request: RouteRequest = {
+        origin: fromPt.geometry.coordinates,
+        destination: toPt.geometry.coordinates,
+        scenario_id: 'kerala_2018'
+      };
+      
+      const result = await calculateRoute(request);
+      setRouteResult(result);
+    } catch (err) {
+      console.error("Failed to calculate route:", err);
+    } finally {
+      setIsCalculating(false);
+    }
   };
 
   return (
