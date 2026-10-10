@@ -96,3 +96,15 @@ export const reportHazard = async (lat: number, lon: number, type: string, descr
     return null;
   }
 };
+
+export const fetchShelters = async (lat?: number, lon?: number) => {
+  try {
+    const query = lat !== undefined && lon !== undefined ? `?lat=${lat}&lon=${lon}` : '';
+    const res = await fetch(`${API_BASE_URL}/shelters${query}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error('Failed to fetch shelters', err);
+    return null;
+  }
+};

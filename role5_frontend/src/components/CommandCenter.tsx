@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import Map, { Source, Layer, Marker, NavigationControl } from 'react-map-gl/maplibre';
+import Map, { Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/maplibre';
 import type { MapRef } from 'react-map-gl';
 import * as maplibregl from 'maplibre-gl';
 import maplibreglWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
@@ -10,7 +10,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 maplibregl.setWorkerUrl(maplibreglWorkerUrl);
 import { 
   MapPin, Building2, Route, AlertTriangle, 
-  CheckCircle, Loader2, Navigation, Layers, Info, Map as MapIcon, Globe
+  CheckCircle, Loader2, Navigation, Layers, Info, Map as MapIcon, Globe,
+  Home, ShieldCheck, X, ExternalLink, Phone, Users, Shield
 } from 'lucide-react';
 import bbox from '@turf/bbox';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
@@ -19,6 +20,7 @@ import clsx from 'clsx';
 interface CommandCenterProps {
   theme: 'light' | 'dark';
   facilities: any;
+  shelters?: any;
   roads: any;
   flood: any;
   routeResult: any;
@@ -31,7 +33,7 @@ interface CommandCenterProps {
   hazards: any[];
   onOriginChange: (facility: any) => void;
   onDestinationChange: (facility: any) => void;
-  onCalculateRoute: () => void;
+  onCalculateRoute: (optOrigin?: any, optDest?: any) => void;
   onClearRoute: () => void;
   onReportHazard: (lat: number, lon: number, type: string, description: string) => void;
 }
@@ -39,6 +41,7 @@ interface CommandCenterProps {
 export default function CommandCenter({
   theme,
   facilities,
+  shelters,
   roads,
   flood,
   routeResult,
@@ -58,6 +61,7 @@ export default function CommandCenter({
   const mapRef = useRef<MapRef>(null);
   const [hoverInfo, setHoverInfo] = useState<{ x: number, y: number, feature: any } | null>(null);
   const [isReportingMode, setIsReportingMode] = useState(false);
+  const [selectedShelter, setSelectedShelter] = useState<any | null>(null);
 
   useEffect(() => {
     if (roads && roads.features && roads.features.length > 0 && mapRef.current) {
@@ -120,7 +124,8 @@ export default function CommandCenter({
     clear: true,
     partial: true,
     submerged: true,
-    facilities: true
+    facilities: true,
+    shelters: true
   });
 
   const facilityMarkers = useMemo(() => {
@@ -166,6 +171,104 @@ export default function CommandCenter({
       );
     });
   }, [facilities, origin, destination, onOriginChange, onDestinationChange, visibleLayers.facilities]);
+
+  const shelterMarkers = useMemo(() => {
+    if (!shelters?.features || !visibleLayers.shelters) return null;
+
+    return shelters.features.map((shelter: any, index: number) => {
+      const coords = shelter.geometry.coordinates;
+      const isDestination = destination && destination.properties?.id === shelter.properties?.id;
+      const isOrigin = origin && origin.properties?.id === shelter.properties?.id;
+      const isVerified = shelter.properties?.is_verified;
+      const isSelected = selectedShelter && selectedShelter.properties?.id === shelter.properties?.id;
+      const isOpen = shelter.properties?.status === 'Open';
+
+      return (
+        <Marker
+          key={`shelter-${shelter.properties?.id || index}`}
+          longitude={coords[0]}
+          latitude={coords[1]}
+          anchor="center"
+          onClick={(e) => {
+            e.originalEvent.stopPropagation();
+            setSelectedShelter(shelter);
+          }}
+        >
+          <div 
+            className={clsx(
+              "group relative cursor-pointer flex items-center justify-center transition-all duration-200 select-none",
+              isSelected ? "scale-125 z-40" : "hover:scale-110 z-20"
+            )}
+            title={`${shelter.properties?.name} (${isVerified ? 'Verified Shelter' : 'Candidate Facility'})`}
+          >
+            {/* Outer Badge */}
+            <div className={clsx(
+              "w-9 h-9 rounded-xl flex items-center justify-center transition-all shadow-lg backdrop-blur-sm",
+              isDestination
+                ? "bg-emerald-500 text-white ring-4 ring-emerald-400/40 shadow-emerald-500/40"
+                : isOrigin
+                ? "bg-cyan-500 text-white ring-4 ring-cyan-400/40 shadow-cyan-500/40"
+                : isVerified
+                ? "bg-[#171B1A]/90 border-2 border-[#D5B477] text-[#D5B477] shadow-[0_2px_12px_rgba(213,180,119,0.35)] hover:border-amber-300"
+                : "bg-[#171B1A]/90 border-2 border-dashed border-stone-400 text-stone-300 shadow-md"
+            )}>
+              {isVerified ? (
+                <ShieldCheck size={19} className="stroke-[2.2]" />
+              ) : (
+                <Home size={17} className="stroke-[2]" />
+              )}
+            </div>
+
+            {/* Availability status indicator */}
+            <div className={clsx(
+              "absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-[#171B1A] shadow-sm",
+              isOpen ? "bg-emerald-400" : "bg-amber-400"
+            )} />
+          </div>
+        </Marker>
+      );
+    });
+  }, [shelters, origin, destination, selectedShelter, visibleLayers.shelters]);
+
+  const shelterFloodContext = useMemo(() => {
+    if (!selectedShelter) return null;
+    const coords = selectedShelter.geometry.coordinates;
+    if (!flood?.features || flood.features.length === 0) {
+      return {
+        status: "unverified",
+        label: "Satellite flood observations unmapped for this quadrant",
+        badgeColor: "text-stone-400 bg-stone-500/10 border-stone-500/20"
+      };
+    }
+
+    let isFlooded = false;
+    for (const poly of flood.features) {
+      try {
+        if (booleanPointInPolygon(coords, poly)) {
+          isFlooded = true;
+          break;
+        }
+      } catch (e) {
+        // fallback
+      }
+    }
+
+    if (isFlooded) {
+      return {
+        status: "flooded",
+        label: "Caution: Adjacent to Detected Inundation Zone",
+        subLabel: "Approach via high-clearance emergency corridor only",
+        badgeColor: "text-amber-500 bg-amber-500/10 border-amber-500/30"
+      };
+    }
+
+    return {
+      status: "safe",
+      label: "Outside Mapped Flood Extent",
+      subLabel: "Verified elevated high-ground shelter plinth",
+      badgeColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30"
+    };
+  }, [selectedShelter, flood]);
 
   const dashboardMetrics = useMemo(() => {
     let totalKm = 0;
@@ -262,6 +365,22 @@ export default function CommandCenter({
   const [destSearch, setDestSearch] = useState('');
   const [originResults, setOriginResults] = useState<any[]>([]);
   const [destResults, setDestResults] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (origin?.properties?.name) {
+      setOriginSearch(origin.properties.name);
+    } else if (!origin) {
+      setOriginSearch('');
+    }
+  }, [origin]);
+
+  useEffect(() => {
+    if (destination?.properties?.name) {
+      setDestSearch(destination.properties.name);
+    } else if (!destination) {
+      setDestSearch('');
+    }
+  }, [destination]);
 
   const handleSearch = async (query: string, setResults: (r: any[]) => void) => {
     if (!query || query.length < 3) {
@@ -421,6 +540,7 @@ export default function CommandCenter({
 
         {/* 3. MARKERS */}
         {facilityMarkers}
+        {shelterMarkers}
 
         {/* Hazard Markers */}
         {hazards && hazards.map((h: any, i: number) => (
@@ -430,6 +550,116 @@ export default function CommandCenter({
             </div>
           </Marker>
         ))}
+
+        {/* 4. SAFE HAVEN DETAILS POPUP */}
+        {selectedShelter && (
+          <Popup
+            longitude={selectedShelter.geometry.coordinates[0]}
+            latitude={selectedShelter.geometry.coordinates[1]}
+            anchor="top"
+            offset={18}
+            onClose={() => setSelectedShelter(null)}
+            closeButton={false}
+            className="z-50"
+            maxWidth="340px"
+          >
+            <div className="p-3.5 bg-white/95 dark:bg-[#1B201F]/95 backdrop-blur-md text-gray-900 dark:text-[#F0EFE8] rounded-xl border border-stone-200 dark:border-[#2F3835] shadow-2xl font-sans flex flex-col gap-2.5 max-w-[320px]">
+              {/* Header */}
+              <div className="flex items-start justify-between gap-2 border-b border-stone-200 dark:border-[#2F3835] pb-2">
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className={clsx(
+                      "text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border",
+                      selectedShelter.properties?.is_verified
+                        ? "text-[#D5B477] bg-[#D5B477]/10 border-[#D5B477]/30 font-semibold"
+                        : "text-stone-400 bg-stone-500/10 border-stone-500/30"
+                    )}>
+                      {selectedShelter.properties?.is_verified ? "Verified SDMA Haven" : "Candidate Facility"}
+                    </span>
+                    <span className={clsx(
+                      "text-[10px] font-mono px-1.5 py-0.5 rounded",
+                      selectedShelter.properties?.status === 'Open'
+                        ? "text-emerald-500 bg-emerald-500/10"
+                        : "text-amber-500 bg-amber-500/10"
+                    )}>
+                      {selectedShelter.properties?.status || 'Status Unknown'}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-semibold leading-snug">
+                    {selectedShelter.properties?.name}
+                  </h4>
+                </div>
+                <button 
+                  onClick={() => setSelectedShelter(null)}
+                  className="text-gray-400 hover:text-gray-700 dark:hover:text-white p-0.5 rounded-lg transition-colors cursor-pointer"
+                  title="Close"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+
+              {/* Location & Authority */}
+              <div className="flex flex-col gap-1 text-xs text-gray-600 dark:text-[#969E98]">
+                <div>{selectedShelter.properties?.address}</div>
+                <div className="text-[11px] flex items-center gap-1 text-gray-500 dark:text-stone-400">
+                  <span className="font-medium text-gray-700 dark:text-stone-300">Authority:</span> {selectedShelter.properties?.official_source}
+                </div>
+              </div>
+
+              {/* Metrics: Capacity & Helpline */}
+              <div className="grid grid-cols-2 gap-1.5 text-xs bg-stone-50 dark:bg-[#151A19] p-2 rounded-lg border border-stone-100 dark:border-[#252C29]">
+                <div>
+                  <div className="text-[10px] text-gray-400 uppercase font-mono">Capacity</div>
+                  <div className="font-semibold text-gray-800 dark:text-stone-200">
+                    {selectedShelter.properties?.capacity ? `${selectedShelter.properties.capacity} Persons` : "Unknown"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-gray-400 uppercase font-mono">Contact</div>
+                  <div className="font-mono text-[11px] text-gray-800 dark:text-stone-200 truncate" title={selectedShelter.properties?.contact}>
+                    {selectedShelter.properties?.contact || "DEOC Helpline"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Flood Context Alert */}
+              {shelterFloodContext && (
+                <div className={clsx(
+                  "px-2.5 py-1.5 rounded-lg border text-[11px] flex flex-col gap-0.5",
+                  shelterFloodContext.badgeColor
+                )}>
+                  <span className="font-medium">{shelterFloodContext.label}</span>
+                  {shelterFloodContext.subLabel && (
+                    <span className="text-[10px] opacity-80">{shelterFloodContext.subLabel}</span>
+                  )}
+                </div>
+              )}
+
+              {/* Accessibility / Amenities */}
+              {selectedShelter.properties?.accessibility && (
+                <div className="text-[11px] text-gray-500 dark:text-stone-400 line-clamp-2 italic">
+                  &ldquo;{selectedShelter.properties.accessibility}&rdquo;
+                </div>
+              )}
+
+              {/* Action: Plan Route Here */}
+              <button
+                onClick={() => {
+                  const targetOrigin = origin || facilities?.features?.find((f: any) => f.properties?.type === 'relief_centre');
+                  if (targetOrigin && !origin) {
+                    onOriginChange(targetOrigin);
+                  }
+                  onDestinationChange(selectedShelter);
+                  onCalculateRoute(targetOrigin, selectedShelter);
+                  setSelectedShelter(null);
+                }}
+                className="w-full mt-1 py-2 px-3 bg-primary text-on-primary-container font-medium rounded-lg text-xs flex items-center justify-center gap-2 hover:bg-primary/90 transition-all cursor-pointer shadow-sm"
+              >
+                <Route size={14} /> Plan Safe Route Here
+              </button>
+            </div>
+          </Popup>
+        )}
       </Map>
 
       {/* Map Mode Toggle Button */}
@@ -656,8 +886,33 @@ export default function CommandCenter({
             <span className="text-xs text-gray-700 dark:text-on-surface-variant group-hover:text-gray-900 dark:group-hover:text-on-surface">Flood Areas</span>
           </label>
 
-          <div className="mt-1 pt-2 border-t border-stone-200 dark:border-outline-variant flex flex-col gap-2">
-            <div className="flex items-center gap-3">
+          <label className="flex items-center gap-3 cursor-pointer group">
+            <input 
+              type="checkbox" 
+              checked={visibleLayers.shelters}
+              onChange={(e) => setVisibleLayers(prev => ({ ...prev, shelters: e.target.checked }))}
+              className="accent-primary"
+            />
+            <div className="w-5 h-5 rounded-md border-2 border-[#D5B477] bg-[#171B1A] flex items-center justify-center text-[#D5B477] shrink-0">
+              <ShieldCheck size={12} className="stroke-[2.5]" />
+            </div>
+            <span className="text-xs text-gray-700 dark:text-on-surface-variant group-hover:text-gray-900 dark:group-hover:text-on-surface font-medium">Safe Haven Shelters</span>
+          </label>
+
+          <div className="mt-1 pt-2 border-t border-stone-200 dark:border-outline-variant flex flex-col gap-1.5">
+            <div className="flex items-center gap-2 text-[10px] text-gray-500 dark:text-stone-300">
+              <div className="w-3.5 h-3.5 rounded border border-[#D5B477] bg-[#171B1A] flex items-center justify-center text-[#D5B477] shrink-0">
+                <ShieldCheck size={9} />
+              </div>
+              <span>Verified SDMA Haven</span>
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-gray-400 dark:text-stone-400">
+              <div className="w-3.5 h-3.5 rounded border border-dashed border-stone-400 bg-[#171B1A] flex items-center justify-center text-stone-300 shrink-0">
+                <Home size={9} />
+              </div>
+              <span>Candidate Facility</span>
+            </div>
+            <div className="flex items-center gap-3 mt-1 pt-1 border-t border-stone-100 dark:border-[#2F3835]">
               <div className="w-5 h-1.5 rounded-full bg-[#22C55E]"></div>
               <span className="text-xs font-medium">Safe Route</span>
             </div>

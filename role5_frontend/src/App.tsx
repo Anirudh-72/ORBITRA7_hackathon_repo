@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import HeroScene from './components/HeroScene';
 import CommandCenter from './components/CommandCenter';
-import { fetchFacilities, fetchRoads, fetchFlood, calculateRoute, fetchLiveWeather, fetchHazards, reportHazard } from './api';
+import { fetchFacilities, fetchRoads, fetchFlood, calculateRoute, fetchLiveWeather, fetchHazards, reportHazard, fetchShelters } from './api';
 import type { RouteRequest } from './api';
 import { motion } from 'framer-motion';
 import { 
@@ -267,6 +267,7 @@ function App() {
 
   const [liveWeather, setLiveWeather] = useState<any>(null);
   const [hazards, setHazards] = useState<any[]>([]);
+  const [shelters, setShelters] = useState<any>(null);
 
   // ── Theme persistence (PRESERVED) ──
   useEffect(() => {
@@ -293,11 +294,12 @@ function App() {
     setIsLoadingData(true);
     setDataError(null);
     
-    const [fac, rds, fld, haz] = await Promise.all([
+    const [fac, rds, fld, haz, shl] = await Promise.all([
       fetchFacilities(lat, lon),
       fetchRoads(lat, lon),
       fetchFlood(lat, lon),
-      fetchHazards()
+      fetchHazards(),
+      fetchShelters(lat, lon)
     ]);
 
     if (!fac || !rds || !fld) {
@@ -307,6 +309,7 @@ function App() {
       setRoads(rds);
       setFlood(fld);
       setHazards(haz?.data || []);
+      setShelters(shl || null);
     }
     setIsLoadingData(false);
   };
@@ -335,15 +338,17 @@ function App() {
     }
   };
 
-  // ── Route calculation (PRESERVED) ──
-  const handleCalculateRoute = async () => {
-    if (!origin || !destination) return;
+  // ── Route calculation (PRESERVED & EXTENDED) ──
+  const handleCalculateRoute = async (optOrigin?: any, optDest?: any) => {
+    const fromPt = optOrigin || origin;
+    const toPt = optDest || destination;
+    if (!fromPt || !toPt) return;
     setIsCalculating(true);
     setRouteResult(null);
     
     const request: RouteRequest = {
-      origin: origin.geometry.coordinates,
-      destination: destination.geometry.coordinates,
+      origin: fromPt.geometry.coordinates,
+      destination: toPt.geometry.coordinates,
       scenario_id: 'kerala_2018'
     };
     
@@ -428,6 +433,7 @@ function App() {
         <CommandCenter 
           theme={theme}
           facilities={facilities}
+          shelters={shelters}
           roads={roads}
           flood={flood}
           routeResult={routeResult}

@@ -20,6 +20,7 @@ from backend.flood_pipeline.curator import list_available_scenarios, get_scenari
 from backend.flood_pipeline.processor import load_scenario_flood_geojson, HAS_GEOSPATIAL_LIBS
 from backend.spatial.classifier import generate_contract_road_network
 from backend.routing.router import plan_post_flood_routes
+from backend.shelters import get_shelters_geojson
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("orbitra7.gateway")
@@ -166,6 +167,15 @@ def get_facilities(
         return get_facilities_geojson(scenario_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/shelters")
+def get_shelters(
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None)
+):
+    """Retrieve official designated emergency evacuation shelters (Safe Havens) with SDMA provenance."""
+    return get_shelters_geojson(lat=lat, lon=lon)
 
 
 @app.post("/api/route")
