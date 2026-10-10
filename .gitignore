@@ -220,3 +220,6 @@ __marimo__/
 .streamlit/secrets.toml
 cache/
 *.tif
+screenshot*.png
+check_*.py
+verify_*.py
