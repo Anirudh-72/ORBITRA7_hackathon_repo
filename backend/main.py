@@ -172,7 +172,16 @@ def get_facilities(
 def calculate_route(request: RouteRequest):
     """Compute risk-aware post-flood route with baseline comparison."""
     try:
-        roads = get_road_network(request.scenario_id)
+        # Pass origin coordinates to prevent loading Kerala roads for non-Kerala points
+        roads = get_road_network(request.scenario_id, lat=request.origin[1], lon=request.origin[0])
+        
+        # If roads is empty, the region is unsupported
+        if not roads.get("features"):
+            return {
+                "status": "DESTINATION_ISOLATED",
+                "message": "No mapped roads available in this region."
+            }
+
         result = plan_post_flood_routes(
             origin=request.origin,
             destination=request.destination,
