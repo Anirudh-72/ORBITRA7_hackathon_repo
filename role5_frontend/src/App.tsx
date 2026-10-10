@@ -57,6 +57,7 @@ function IntroView({ onLaunch, theme }: { onLaunch: () => void, theme: string })
 
   useLayoutEffect(() => {
     if (!containerRef.current) return;
+    const scrollerEl = containerRef.current.parentElement || window;
 
     const ctx = gsap.context(() => {
       // Hero parallax fade on scroll
@@ -68,6 +69,7 @@ function IntroView({ onLaunch, theme }: { onLaunch: () => void, theme: string })
           ease: 'none',
           scrollTrigger: {
             trigger: heroRef.current,
+            scroller: scrollerEl,
             start: 'top top',
             end: 'bottom top',
             scrub: true,
@@ -87,7 +89,8 @@ function IntroView({ onLaunch, theme }: { onLaunch: () => void, theme: string })
             ease: 'power2.out',
             scrollTrigger: {
               trigger: card,
-              start: 'top 80%',
+              scroller: scrollerEl,
+              start: 'top 85%',
               end: 'top 50%',
               scrub: false,
               toggleActions: 'play none none reverse',
@@ -105,7 +108,7 @@ function IntroView({ onLaunch, theme }: { onLaunch: () => void, theme: string })
       {/* ── Hero Section ── */}
       <section ref={heroRef} className="relative w-full h-screen flex items-center justify-center overflow-hidden">
         {/* 3D Globe background */}
-        <div className="absolute inset-0 z-0">
+        <div className="absolute inset-0 z-0 pointer-events-none">
           <HeroScene className="w-full h-full" theme={theme as 'light' | 'dark'} />
         </div>
         
@@ -150,7 +153,7 @@ function IntroView({ onLaunch, theme }: { onLaunch: () => void, theme: string })
           >
             <button 
               onClick={onLaunch}
-              className="group px-7 py-3.5 bg-primary text-on-primary-container font-medium rounded-lg hover:bg-primary/90 transition-all duration-200 flex items-center gap-3 text-sm tracking-wide"
+              className="group px-7 py-3.5 bg-primary text-on-primary-container font-medium rounded-lg hover:bg-primary/90 transition-all duration-200 flex items-center gap-3 text-sm tracking-wide cursor-pointer shadow-lg"
             >
               Enter Command Center
               <ArrowRight size={16} className="group-hover:translate-x-0.5 transition-transform" />
@@ -162,10 +165,15 @@ function IntroView({ onLaunch, theme }: { onLaunch: () => void, theme: string })
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.8, delay: 1.5 }}
-          className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-on-surface-variant"
+          onClick={() => {
+            if (scenesRef.current) {
+              scenesRef.current.scrollIntoView({ behavior: 'smooth' });
+            }
+          }}
+          className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-on-surface-variant cursor-pointer hover:text-primary transition-colors group z-20"
         >
-          <span className="text-[11px] font-mono tracking-[0.15em] uppercase opacity-60">Scroll to learn more</span>
-          <ChevronDown size={18} className="animate-bounce" />
+          <span className="text-[11px] font-mono tracking-[0.15em] uppercase opacity-70 group-hover:opacity-100 transition-opacity">Scroll to learn more</span>
+          <ChevronDown size={18} className="animate-bounce text-primary" />
         </motion.div>
       </section>
 
@@ -305,6 +313,8 @@ function App() {
 
   useEffect(() => {
     loadData();
+    // Fetch live weather baseline immediately so it is never "Unavailable" on launch
+    fetchLiveWeather(9.975, 76.285).then(data => setLiveWeather(data)).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -397,7 +407,7 @@ function App() {
           zIndex: activeView === 'intro' ? 20 : 10
         }}
         transition={{ duration: 0.4 }}
-        className="absolute inset-0 pt-14 overflow-y-auto overflow-x-hidden bg-background"
+        className="absolute inset-0 pt-14 overflow-y-auto overflow-x-hidden bg-background scroll-smooth"
       >
         <IntroView theme={theme} onLaunch={() => {
           setActiveView('app');

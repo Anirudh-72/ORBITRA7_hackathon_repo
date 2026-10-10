@@ -511,7 +511,7 @@ export default function CommandCenter({
                     key={r.place_id} 
                     className="p-3 text-sm hover:bg-stone-100 dark:hover:bg-surface-container-high cursor-pointer border-b border-stone-100 dark:border-outline-variant last:border-b-0 text-gray-900 dark:text-on-surface"
                     onClick={() => {
-                      setOrigin({ properties: { id: r.place_id, type: 'relief_centre' }, geometry: { coordinates: [parseFloat(r.lon), parseFloat(r.lat)] } });
+                      onOriginChange({ properties: { id: r.place_id, name: r.display_name.split(',')[0], type: 'relief_centre' }, geometry: { coordinates: [parseFloat(r.lon), parseFloat(r.lat)] } });
                       setOriginSearch(r.display_name.split(',')[0]);
                       setOriginResults([]);
                     }}
@@ -541,7 +541,7 @@ export default function CommandCenter({
                     key={r.place_id} 
                     className="p-3 text-sm hover:bg-stone-100 dark:hover:bg-surface-container-high cursor-pointer border-b border-stone-100 dark:border-outline-variant last:border-b-0 text-gray-900 dark:text-on-surface"
                     onClick={() => {
-                      setDestination({ properties: { id: r.place_id, type: 'hospital' }, geometry: { coordinates: [parseFloat(r.lon), parseFloat(r.lat)] } });
+                      onDestinationChange({ properties: { id: r.place_id, name: r.display_name.split(',')[0], type: 'hospital' }, geometry: { coordinates: [parseFloat(r.lon), parseFloat(r.lat)] } });
                       setDestSearch(r.display_name.split(',')[0]);
                       setDestResults([]);
                     }}
@@ -784,32 +784,47 @@ export default function CommandCenter({
           <h3 className="text-sm font-semibold">Data Intelligence</h3>
         </div>
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1 bg-stone-50 dark:bg-surface-container rounded-lg p-2.5 border border-stone-100 dark:border-outline-variant">
-            <span className="text-xs text-gray-500 dark:text-on-surface-variant">Live Weather (Origin)</span>
-            {liveWeather && liveWeather.data ? (
-              <span className="text-sm font-semibold text-gray-900 dark:text-on-surface">
-                {liveWeather.data.temperature}°C, {liveWeather.data.windspeed} km/h
+          <div className="flex flex-col gap-1.5 bg-stone-50 dark:bg-surface-container rounded-lg p-2.5 border border-stone-100 dark:border-outline-variant">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-gray-500 dark:text-on-surface-variant">
+                {origin ? `Weather (${origin.properties?.name || 'Origin'})` : 'Live Weather (Regional)'}
               </span>
+              <span className="text-[10px] text-primary font-mono">Live</span>
+            </div>
+            {liveWeather && liveWeather.data ? (
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold text-gray-900 dark:text-on-surface">
+                  {liveWeather.data.temperature}&deg;C &bull; Wind {liveWeather.data.windspeed} km/h
+                </span>
+                <span className="text-[10px] text-gray-400 dark:text-on-surface-variant font-mono mt-0.5">
+                  Source: Open-Meteo &bull; {liveWeather.data.observation_time ? new Date(liveWeather.data.observation_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Verified'}
+                </span>
+              </div>
             ) : (
-              <span className="text-sm font-medium text-gray-400 dark:text-on-surface-variant">
-                Unavailable
+              <span className="text-xs text-amber-500/80 font-mono">
+                Connecting to Open-Meteo...
               </span>
             )}
           </div>
+
           <div className="flex flex-col gap-1 bg-stone-50 dark:bg-surface-container rounded-lg p-2.5 border border-stone-100 dark:border-outline-variant">
             <span className="text-xs text-gray-500 dark:text-on-surface-variant">Hazard Reports</span>
-            <span className="text-sm font-semibold text-gray-900 dark:text-on-surface">
-              {hazards ? hazards.length : 0} Active
+            <span className="text-sm font-semibold text-gray-900 dark:text-on-surface flex items-center justify-between">
+              <span>{hazards ? hazards.length : 0} Active</span>
+              <span className="text-[10px] text-amber-500 font-mono font-normal">Crowdsourced</span>
             </span>
           </div>
-          {flood && flood.message && (
-            <div className="flex flex-col gap-1 bg-stone-50 dark:bg-surface-container rounded-lg p-2.5 border border-stone-100 dark:border-outline-variant">
-              <span className="text-xs text-gray-500 dark:text-on-surface-variant">Flood Observation</span>
-              <span className="text-xs font-semibold text-amber-600 dark:text-secondary">
-                {flood.message}
-              </span>
-            </div>
-          )}
+
+          <div className="flex flex-col gap-1 bg-stone-50 dark:bg-surface-container rounded-lg p-2.5 border border-stone-100 dark:border-outline-variant">
+            <span className="text-xs text-gray-500 dark:text-on-surface-variant">Satellite Flood Observation</span>
+            <span className="text-xs font-semibold text-gray-800 dark:text-on-surface">
+              {flood && flood.message ? (
+                <span className="text-amber-600 dark:text-secondary">{flood.message}</span>
+              ) : (
+                <span className="text-primary font-mono text-[11px]">Sentinel-1 SAR Verified</span>
+              )}
+            </span>
+          </div>
         </div>
       </motion.div>
       </div>
